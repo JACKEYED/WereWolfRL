@@ -1,0 +1,17 @@
+/* 文件作用：回放页面的基础样式，控制页面边距、游戏容器布局和画布圆角。 */
+html,
+body,
+#game-container {
+  margin: 0;
+  padding: 0;
+}
+
+#game-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game-container>canvas {
+  border-radius: 5px;
+}

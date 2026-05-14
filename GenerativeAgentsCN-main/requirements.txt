@@ -1,0 +1,8 @@
+# 文件作用：列出斯坦福小镇版狼人杀运行、LLM 调用、向量记忆和网页回放所需的 Python 依赖。
+openai==2.15.0
+python-dotenv>=1.0.1
+llama-index==0.14.12
+llama-index-embeddings-huggingface==0.6.1
+llama-index-embeddings-ollama==0.8.6
+llama-index-embeddings-openai==0.5.1
+Flask==3.1.2
