@@ -1,6 +1,6 @@
 # 文件作用：WerewolfPlayer 玩家状态 + 与玩家身份相关的纯函数（如开局简报、兜底发言）。
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
 from modules.werewolf.rules import ROLE_GOALS, ROLE_NAMES
@@ -14,6 +14,8 @@ class WerewolfPlayer:
     death_reason: str = ""
     death_day: Optional[int] = None
     used_hunter_shot: bool = False
+    personality_name: str = ""
+    personality_description: str = ""
 
     @property
     def role_name(self) -> str:

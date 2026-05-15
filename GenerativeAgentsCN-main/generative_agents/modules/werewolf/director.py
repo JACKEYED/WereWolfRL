@@ -26,6 +26,7 @@ from modules.werewolf.locations import (
 )
 from modules.werewolf.player import WerewolfPlayer, role_brief as _role_brief
 from modules.werewolf.rules import (
+    PLAYER_PERSONALITIES,
     ROLE_DECK,
     SAFETY_DAY_LIMIT,
     check_winner,
@@ -33,6 +34,7 @@ from modules.werewolf.rules import (
 )
 from modules.werewolf.text_utils import clean_text as _clean_text, join_names as _join_names
 from modules.werewolf import recorder as _recorder
+from modules.prompt import HUNTER_SHOT_TASK
 from modules.werewolf import llm_io as _llm_io
 from modules.werewolf.phases import night as _night, day as _day, social as _social
 
@@ -228,6 +230,10 @@ class WerewolfDirector:
 
         for name in self.players_order:
             self.players[name] = WerewolfPlayer(name=name, role=self.role_map[name])
+            personalities = PLAYER_PERSONALITIES[self.role_map[name]]
+            picked = self.random.choice(personalities)
+            self.players[name].personality_name = picked["name"]
+            self.players[name].personality_description = picked["description"]
 
     # =========================================================================
     # 胜负与死亡
@@ -277,7 +283,7 @@ class WerewolfDirector:
         target = self.ask_choice(
             hunter,
             phase,
-            "你是猎人，已殁。临死反扑之机：可指认一名仍存活的玩家与你同葬，或选择放手。",
+            HUNTER_SHOT_TASK,
             ["不开枪"] + candidates,
             fallback=self.heuristic_target(hunter, candidates),
         )

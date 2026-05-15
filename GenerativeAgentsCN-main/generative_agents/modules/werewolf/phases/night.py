@@ -2,6 +2,14 @@
 
 from typing import Dict, List, Optional, Tuple
 
+from modules.prompt import (
+    GUARD_TASK,
+    SEER_TASK,
+    WEREWOLF_TARGET_TASK,
+    WITCH_POISON_TASK,
+    werewolf_speech_task,
+    witch_antidote_task,
+)
 from modules.werewolf.locations import LOCATIONS, shichen
 from modules.werewolf.llm_io import ask_choice, ask_text
 from modules.werewolf.rules import resolve_night_deaths
@@ -97,10 +105,7 @@ def werewolf_action(director, phase: str) -> Optional[str]:
             director,
             wolf,
             phase,
-            (
-                "你正在染坊和狼队商量夜间击杀。请结合白天发言、私聊线索和狼队利益，"
-                "选择今晚最该击杀的一名非狼人玩家。"
-            ),
+            WEREWOLF_TARGET_TASK,
             candidates,
             fallback=fallback_target,
         )
@@ -108,10 +113,7 @@ def werewolf_action(director, phase: str) -> Optional[str]:
             director,
             wolf,
             phase,
-            (
-                f"你是狼人，队友是 {join_names([w for w in wolves if w != wolf])}。"
-                f"你倾向于击杀 {target}。请用1到2句话向狼队解释原因，可以伪装成冷静分析。"
-            ),
+            werewolf_speech_task(target, join_names([w for w in wolves if w != wolf])),
             fallback=f"我建议今晚处理{target}，这个人白天的信息价值太高。",
             max_chars=120,
         )
@@ -148,10 +150,7 @@ def guard_action(director, phase: str) -> Optional[str]:
         director,
         guard,
         phase,
-        (
-            "你是守卫。你不能连续两晚守护同一个人。请选择今晚守护目标。"
-            "你可以守护自己，也可以根据白天发言保护疑似神职。"
-        ),
+        GUARD_TASK,
         candidates,
         fallback=director.heuristic_target(guard, candidates, prefer_self=True),
     )
@@ -178,7 +177,7 @@ def seer_action(director, phase: str) -> Optional[Tuple[str, str, str]]:
         director,
         seer,
         phase,
-        "你是预言家。请选择今晚要查验的一名玩家，目标是帮助好人阵营建立可靠信息链。",
+        SEER_TASK,
         candidates,
         fallback=director.heuristic_target(seer, candidates),
     )
@@ -208,10 +207,7 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
                 director,
                 witch,
                 phase,
-                (
-                    f"你是女巫。今晚你得知 {wolf_target} 被狼人袭击。你还有解药。请选择是否使用解药。"
-                    + ("（首夜可自救）" if wolf_target == witch else "")
-                ),
+                witch_antidote_task(wolf_target, is_self=(wolf_target == witch)),
                 ["救", "不救"],
                 fallback="救",
             )
@@ -233,7 +229,7 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
             director,
             witch,
             phase,
-            "你是女巫。你还有毒药。请判断今晚是否毒杀一名玩家。如果证据不足，可以选择“不毒”。",
+            WITCH_POISON_TASK,
             candidates,
             fallback="不毒",
         )

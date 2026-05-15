@@ -113,7 +113,7 @@ def main():
         players,
         load_agent_base(),
     )
-    if args.no_memory:
+    if args.no_memory or True:
         config["agent_base"]["associate"] = {"disabled": True}
 
     director = WerewolfDirector(

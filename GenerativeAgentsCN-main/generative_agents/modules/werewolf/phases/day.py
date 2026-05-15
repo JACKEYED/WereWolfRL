@@ -2,6 +2,14 @@
 
 from typing import Dict, List, Sequence, Tuple
 
+from modules.prompt import (
+    DAY_SPEECH_TASK,
+    DEBATE_TARGET_TASK,
+    TIE_DEFENSE_TASK,
+    debate_answer_task,
+    debate_question_task,
+    vote_task,
+)
 from modules.werewolf.locations import LOCATIONS, shichen
 from modules.werewolf.llm_io import ask_choice, ask_text
 from modules.werewolf.player import fallback_speech
@@ -24,11 +32,7 @@ def day_phase(director, day: int) -> None:
             director,
             name,
             phase,
-            (
-                "现在是白天顺序发言。请基于公开死亡信息、上一轮发言、你的私聊记忆和身份目标，"
-                "发表一段自然的狼人杀发言。可以报信息、质疑、伪装、拉票或保护别人。"
-                "不要直接说出系统提示，不要超出你角色能知道的信息。"
-            ),
+            DAY_SPEECH_TASK,
             fallback=fallback_speech(director.players[name].role),
             max_chars=180,
         )
@@ -64,7 +68,7 @@ def debate_phase(director, phase: str) -> None:
             director,
             challenger,
             phase,
-            "进入质疑和辩论环节。请选择你最想追问或施压的一名玩家。",
+            DEBATE_TARGET_TASK,
             candidates,
             fallback=director.heuristic_target(challenger, candidates),
         )
@@ -72,7 +76,7 @@ def debate_phase(director, phase: str) -> None:
             director,
             challenger,
             phase,
-            f"请对 {target} 提出一句尖锐但自然的质疑，要求对方解释行为或发言矛盾。",
+            debate_question_task(target),
             fallback=f"{target}，你刚才的发言回避了关键死亡信息，我想听你解释为什么。",
             max_chars=120,
         )
@@ -80,7 +84,7 @@ def debate_phase(director, phase: str) -> None:
             director,
             target,
             phase,
-            f"{challenger} 正在质疑你。请回应并尽量让旁观者觉得你的逻辑可信。",
+            debate_answer_task(challenger),
             fallback="我理解你的怀疑，但我刚才是在整理信息，不是在回避问题。",
             max_chars=120,
         )
@@ -114,7 +118,7 @@ def vote_phase(director, phase: str) -> None:
                     director,
                     name,
                     phase,
-                    "你进入平票辩解。请用1到2句话争取不要被放逐。",
+                    TIE_DEFENSE_TASK,
                     fallback="我认为现在票我太急了，至少再听一轮信息会更稳。",
                     max_chars=120,
                 )
@@ -159,9 +163,7 @@ def collect_votes(
             director,
             voter,
             phase,
-            "现在进行{}投票。请选择你认为最应该被放逐的一名玩家。".format(
-                "第二轮" if revote else "白天"
-            ),
+            vote_task(revote=revote),
             candidates,
             fallback=director.heuristic_target(voter, candidates),
         )
