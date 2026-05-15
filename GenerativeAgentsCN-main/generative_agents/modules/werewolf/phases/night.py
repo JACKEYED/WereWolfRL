@@ -119,6 +119,11 @@ def werewolf_action(director, phase: str) -> Optional[str]:
         )
         proposals.append(target)
         chats.append((wolf, speech))
+        director.record_trajectory(
+            agent=wolf, phase=phase, decision_type="skill",
+            action=target, candidates=candidates,
+            extra_obs={"skill": "kill", "speech": speech},
+        )
 
     director.record_dialogue(
         f"{wolves[0]} -> 狼队",
@@ -158,7 +163,12 @@ def guard_action(director, phase: str) -> Optional[str]:
     text = f"{phase}：你守护了 {target}。"
     director.private_log[guard].append(text)
     director.safe_remember(guard, text, node_type="thought", poignancy=8)
-    director.add_record("secret", phase, f"守卫 {guard} 守护 {target}。")
+    director.add_record("secret", phase, f"守卫 {guard} 守护 {target}。", actors=[guard])
+    director.record_trajectory(
+        agent=guard, phase=phase, decision_type="skill",
+        action="self" if target == guard else target,
+        candidates=candidates, extra_obs={"skill": "guard"},
+    )
     return target
 
 
@@ -186,6 +196,26 @@ def seer_action(director, phase: str) -> Optional[Tuple[str, str, str]]:
     text = f"{phase}：你查验了 {target}，结果是 {result}。"
     director.private_log[seer].append(text)
     director.safe_remember(seer, text, node_type="thought", poignancy=10)
+    # 查到狼 → 直接锁定 belief；查到好人 → 至少能排除 werewolf
+    bs = director.belief_of(seer)
+    if bs is not None:
+        from modules.werewolf.beliefs import ROLE_KEYS
+        if result == "狼人":
+            bs.locked[target] = "werewolf"
+            bs.beliefs[target] = {r: 0.0 for r in ROLE_KEYS}
+            bs.beliefs[target]["werewolf"] = 1.0
+        else:
+            # 好人：清掉 werewolf 概率，其他重新归一
+            if target in bs.beliefs:
+                bs.beliefs[target]["werewolf"] = 0.0
+                s = sum(bs.beliefs[target].values())
+                if s > 0:
+                    bs.beliefs[target] = {r: v / s for r, v in bs.beliefs[target].items()}
+    director.record_trajectory(
+        agent=seer, phase=phase, decision_type="skill",
+        action=target, candidates=candidates,
+        extra_obs={"skill": "check", "result": result},
+    )
     return seer, target, result
 
 
@@ -218,6 +248,11 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
                 text = f"{phase}：你使用解药救下了 {wolf_target}。"
                 director.private_log[witch].append(text)
                 director.safe_remember(witch, text, node_type="thought", poignancy=9)
+                director.record_trajectory(
+                    agent=witch, phase=phase, decision_type="skill",
+                    action=wolf_target, candidates=["救", "不救"],
+                    extra_obs={"skill": "save"},
+                )
         else:
             text = f"{phase}：你今晚被狼人袭击，但按规矩不能给自己用解药。"
             director.private_log[witch].append(text)
@@ -239,6 +274,11 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
             text = f"{phase}：你使用毒药毒杀 {poison_target}。"
             director.private_log[witch].append(text)
             director.safe_remember(witch, text, node_type="thought", poignancy=9)
+            director.record_trajectory(
+                agent=witch, phase=phase, decision_type="skill",
+                action=poison_target, candidates=candidates,
+                extra_obs={"skill": "poison"},
+            )
 
     director.add_record(
         "secret",

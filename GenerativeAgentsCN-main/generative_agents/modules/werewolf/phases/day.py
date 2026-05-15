@@ -37,6 +37,11 @@ def day_phase(director, day: int) -> None:
             max_chars=180,
         )
         speeches.append((name, speech))
+        director.record_trajectory(
+            agent=name, phase=phase, decision_type="speech",
+            action=speech,
+            extra_obs={"speech_kind": "议会顺序发言"},
+        )
 
     director.record_dialogue(
         f"{alive[0]} -> 全体",
@@ -168,6 +173,11 @@ def collect_votes(
             fallback=director.heuristic_target(voter, candidates),
         )
         votes[voter] = target
+        director.record_trajectory(
+            agent=voter, phase=phase, decision_type="vote",
+            action=target, candidates=candidates,
+            extra_obs={"vote_round": "revote" if revote else "first"},
+        )
 
     vote_text = "；".join(f"{voter}->{target}" for voter, target in votes.items())
     director.add_record(

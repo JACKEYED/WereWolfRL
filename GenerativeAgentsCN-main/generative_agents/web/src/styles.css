@@ -175,3 +175,196 @@ body {
 .agent-detail .role { font-size: 0.9em; color: var(--muted); margin-bottom: 0.6em; }
 .agent-detail ul { padding-left: 1.2em; margin: 0.4em 0; }
 .agent-detail li { margin-bottom: 0.3em; line-height: 1.4em; }
+
+.belief-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.4em 0;
+  font-size: 0.82em;
+}
+.belief-table th, .belief-table td {
+  border: 1px solid var(--line);
+  padding: 0.2em 0.3em;
+  text-align: center;
+}
+.belief-table th {
+  background: rgba(0,0,0,0.04);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+.belief-table td:first-child {
+  text-align: left;
+  white-space: nowrap;
+}
+.belief-table .belief-top {
+  background: rgba(74, 107, 136, 0.12);
+  font-weight: 600;
+}
+.belief-table .belief-locked {
+  background: rgba(160, 64, 64, 0.06);
+  font-style: italic;
+}
+
+/* ─────────── Modal Dialog ─────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 18, 12, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  width: min(440px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8em 1.2em;
+  border-bottom: 1px solid var(--line);
+  background: rgba(0,0,0,0.03);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.05em;
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+.modal-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.4em;
+  line-height: 1;
+  padding: 0 0.3em;
+  cursor: pointer;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-close:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.modal-body {
+  padding: 1em 1.2em;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9em;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+  padding: 0.7em 1.2em;
+  border-top: 1px solid var(--line);
+  background: rgba(0,0,0,0.02);
+}
+
+.modal-footer button {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 0.4em 1em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.modal-footer button:hover { background: rgba(0,0,0,0.04); }
+.modal-footer button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+.modal-footer button.primary:hover { background: var(--accent-dark); }
+.modal-footer button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: var(--ink);
+}
+
+.field input[type="text"],
+.field input[type="number"] {
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 0.9em;
+  background: white;
+  font-family: inherit;
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(74,107,136,0.15);
+}
+
+.field-hint {
+  color: var(--muted);
+  font-size: 0.8em;
+  line-height: 1.4em;
+}
+
+.field-check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.6em;
+  cursor: pointer;
+  padding: 0.3em 0;
+}
+.field-check input { margin-top: 0.25em; }
+.field-check small {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.form-error {
+  padding: 0.5em 0.7em;
+  background: rgba(160, 64, 64, 0.08);
+  border-left: 3px solid var(--wolf);
+  color: var(--wolf);
+  font-size: 0.85em;
+  border-radius: 2px;
+}
+
+.form-warn {
+  padding: 0.5em 0.7em;
+  background: rgba(138, 106, 58, 0.08);
+  border-left: 3px solid var(--secret);
+  color: var(--secret);
+  font-size: 0.85em;
+  border-radius: 2px;
+}
+
+.form-info {
+  padding: 0.5em 0.7em;
+  background: rgba(74, 107, 136, 0.08);
+  border-left: 3px solid var(--accent);
+  color: var(--accent-dark);
+  font-size: 0.85em;
+  border-radius: 2px;
+  line-height: 1.5em;
+}

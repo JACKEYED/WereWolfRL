@@ -44,6 +44,34 @@ export interface PhaseRecord {
   location: string;
 }
 
+export interface BeliefDist {
+  werewolf: number;
+  seer: number;
+  witch: number;
+  hunter: number;
+  guard: number;
+  villager: number;
+}
+
+export interface BeliefState {
+  holder: string;
+  beliefs: Record<string, BeliefDist>;
+  locked: Record<string, string>;
+}
+
+export interface TrajectoryStep {
+  step_id: number;
+  agent: string;
+  phase: string;
+  day: number;
+  decision_type: "speech" | "vote" | "skill" | "choice";
+  obs: Record<string, unknown>;
+  candidates: string[] | null;
+  action: unknown;
+  reward_step: number;
+  reward_episode: number;
+}
+
 export interface AgentPrivate {
   name: string;
   role: string;
@@ -53,6 +81,8 @@ export interface AgentPrivate {
   death_reason: string;
   private_log: string[];
   seer_checks: Record<string, string> | null;
+  belief: BeliefState | null;
+  trajectory_tail: TrajectoryStep[];
 }
 
 export type LiveEvent =

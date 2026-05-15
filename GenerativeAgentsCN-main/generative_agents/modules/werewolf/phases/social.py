@@ -38,6 +38,11 @@ def free_social_window(director, label: str, rounds: int = 2) -> None:
                     max_chars=130,
                 )
                 chats.append((name, speech))
+                director.record_trajectory(
+                    agent=name, phase=label, decision_type="speech",
+                    action=speech,
+                    extra_obs={"speech_kind": "私聊", "audience": list(others), "location": location},
+                )
             director.record_dialogue(
                 f"{group[0]} -> 私聊小组",
                 address,

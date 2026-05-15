@@ -91,6 +91,18 @@ def safe_remember(director, name: str, text: str, *, node_type: str, poignancy: 
 
 def state_dict(director, phase: str) -> dict:
     """导出当前完整游戏状态，用于检查点和 API 响应。"""
+    belief_states_serialized = {}
+    if hasattr(director, "belief_states") and director.belief_states:
+        for name, bs in director.belief_states.items():
+            belief_states_serialized[name] = bs.to_dict()
+
+    trajectories_summary = {"count": 0}
+    if hasattr(director, "trajectories"):
+        trajectories_summary = {
+            "count": len(director.trajectories.steps),
+            "by_decision_type": _count_by(director.trajectories.steps, lambda s: s.decision_type),
+        }
+
     return {
         "name": director.name,
         "phase": phase,
@@ -108,7 +120,17 @@ def state_dict(director, phase: str) -> dict:
         "public_log": director.public_log,
         "private_log": director.private_log,
         "phase_records": director.phase_records,
+        "belief_states": belief_states_serialized,
+        "trajectories": trajectories_summary,
     }
+
+
+def _count_by(items, key_fn):
+    counts = {}
+    for x in items:
+        k = key_fn(x)
+        counts[k] = counts.get(k, 0) + 1
+    return counts
 
 
 def save_checkpoint(director, phase: str) -> None:

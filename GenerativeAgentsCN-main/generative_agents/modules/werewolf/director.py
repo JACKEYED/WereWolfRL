@@ -37,6 +37,10 @@ from modules.werewolf import recorder as _recorder
 from modules.prompt import HUNTER_SHOT_TASK
 from modules.werewolf import llm_io as _llm_io
 from modules.werewolf.phases import night as _night, day as _day, social as _social
+from modules.werewolf.beliefs import BeliefState, init_for as _init_belief
+from modules.werewolf.llm_judge import update_belief_via_llm
+from modules.werewolf.trajectory import TrajectoryRecorder, snapshot_belief
+from modules.werewolf import reward as _reward
 
 
 # 默认玩家名单（江南古镇 12 民国人）；可被 start.py 覆盖。
@@ -161,24 +165,34 @@ class WerewolfDirector:
         except Exception as exc:
             self.logger.warning(f"流言模块未加载：{exc}")
 
+        # RL 训练基础设施（路 3）
+        self.belief_states: Dict[str, BeliefState] = {}
+        self.trajectories = TrajectoryRecorder()
+        # 阶段末扫描事件用的游标：每个 Agent 上次 belief 更新时 phase_records 已处理到的索引
+        self._phase_record_cursor_per_agent: Dict[str, int] = {}
+
     # =========================================================================
     # 主循环
     # =========================================================================
     def run(self) -> dict:
         self.setup()
         self.free_social_window("开场申时（黄昏踩点）", rounds=3)
+        self.end_of_phase("开场申时（黄昏踩点）")
 
         for day in range(1, SAFETY_DAY_LIMIT + 1):
             self.day = day
             self.night_phase(day)
+            self.end_of_phase(shichen(day, "子时"))
             if self.check_win("子时结算"):
                 break
 
             self.day_phase(day)
+            self.end_of_phase(shichen(day, "辰时议会"))
             if self.check_win("辰时议会"):
                 break
 
             self.free_social_window(shichen(day, "申时余韵"), rounds=2)
+            self.end_of_phase(shichen(day, "申时余韵"))
 
         if not self.winner:
             self.add_record(
@@ -186,9 +200,20 @@ class WerewolfDirector:
                 "游戏结束",
                 f"达到内部安全上限 {SAFETY_DAY_LIMIT} 天，游戏暂停。当前仍有 {len(self.alive_names())} 名玩家存活。",
             )
+
+        self.fill_episode_rewards()
+        self._save_trajectories()
         self.write_report()
         self.save_checkpoint("结束")
         return self.state_dict("结束")
+
+    def _save_trajectories(self) -> None:
+        """把 trajectory 单独存一份 JSON，方便 RL 训练直接消费。"""
+        path = os.path.join(self.checkpoints_folder, "trajectories.json")
+        try:
+            self.trajectories.save(path)
+        except Exception as exc:
+            self.logger.warning(f"trajectories.json 写盘失败：{exc}")
 
     def setup(self) -> None:
         self.assign_roles()
@@ -204,6 +229,21 @@ class WerewolfDirector:
                 duration=10,
                 emoji="身份",
             )
+
+        # 路 3：每个 Agent 形成初始 belief（按身份不同有不同先验）
+        self.belief_states = {
+            name: _init_belief(
+                holder_name=name,
+                holder_role=self.players[name].role,
+                all_players=self.players_order,
+                wolf_teammates=[
+                    n for n in self.players_order
+                    if n != name and self.players[n].role == "werewolf"
+                ] if self.players[name].role == "werewolf" else (),
+            )
+            for name in self.players_order
+        }
+        self._phase_record_cursor_per_agent = {name: 0 for name in self.players_order}
 
         self.add_record(
             "public",
@@ -413,3 +453,124 @@ class WerewolfDirector:
         occupied = {tuple(agent.coord) for agent in self.game.agents.values() if agent.coord}
         candidates = [coord for coord in open_tiles if tuple(coord) not in occupied] or open_tiles or tiles
         return list(self.random.choice(candidates))
+
+    # =========================================================================
+    # 路 3：belief + trajectory + reward
+    # =========================================================================
+    def belief_of(self, name: str) -> Optional[BeliefState]:
+        return self.belief_states.get(name)
+
+    def end_of_phase(self, phase_label: str) -> None:
+        """阶段末批量更新 belief、计算 step reward、回填到 trajectory。
+
+        中颗粒度（每阶段末，每存活听众调用一次 LLM）。
+        """
+        if not self.belief_states:
+            return
+
+        # 1. 取本阶段新增的 public/secret/social 事件（按 holder 可见性筛选）
+        records = self.phase_records
+        cursor = self._phase_record_cursor_per_agent
+
+        # 2. 备份 prior（深拷贝），用于 reward 计算
+        prior = {n: BeliefState(holder=n, beliefs=dict(b.beliefs), locked=dict(b.locked))
+                 for n, b in self.belief_states.items()}
+
+        # 3. 对每个存活 Agent 调一次 LLM 重估
+        real_roles = {n: p.role for n, p in self.players.items()}
+        for name in self.alive_names():
+            visible = self._visible_events_for(name, records, cursor.get(name, 0))
+            if not visible:
+                continue
+            new_belief = update_belief_via_llm(
+                self,
+                witness_name=name,
+                prior=prior[name],
+                phase_label=phase_label,
+                new_events=visible,
+            )
+            self.belief_states[name] = new_belief
+        # 4. 全员（无论活死）游标推进
+        for name in self.players_order:
+            cursor[name] = len(records)
+
+        # 5. 给本阶段内每条 trajectory step 计算 step_reward
+        for step in self.trajectories.steps_in_phase(phase_label):
+            if step.reward_step != 0.0:
+                continue  # 已填过
+            actor = step.agent
+            actor_role = real_roles.get(actor, "")
+            if step.decision_type == "speech":
+                step.reward_step = _reward.step_reward_for_speech(
+                    actor, actor_role, prior, self.belief_states, real_roles, self.alive_names()
+                )
+            elif step.decision_type == "vote":
+                step.reward_step = _reward.step_reward_for_vote(
+                    actor, actor_role, str(step.action), real_roles
+                )
+            elif step.decision_type == "skill":
+                skill = step.obs.get("skill", "")
+                target = step.action if isinstance(step.action, str) else None
+                step.reward_step = _reward.step_reward_for_skill(
+                    actor_role, skill, target, real_roles
+                )
+
+    def _visible_events_for(self, holder: str, records: List[dict], from_idx: int) -> List[str]:
+        """从 phase_records 切出 holder 可见的那些事件文本。"""
+        out: List[str] = []
+        for rec in records[from_idx:]:
+            scope = rec.get("scope")
+            text = rec.get("text", "")
+            actors = rec.get("actors") or []
+            if scope == "public" or scope == "movement":
+                out.append(text)
+            elif scope == "social":
+                # 只对参与者可见——保险起见用 actors 字段近似
+                if holder in actors:
+                    out.append(text)
+            # secret 不向其他人广播，只对 actor 自己可见
+            elif scope == "secret":
+                if holder in actors:
+                    out.append(text)
+            # system 不进 belief 更新
+        return out
+
+    def fill_episode_rewards(self) -> None:
+        """局末：把 reward_episode 填到每条 trajectory step。"""
+        if not self.winner or not self.trajectories.steps:
+            return
+        ep_rewards = {
+            name: _reward.episode_reward(self.winner, p.role)
+            for name, p in self.players.items()
+        }
+        self.trajectories.fill_episode_reward(ep_rewards)
+
+    def record_trajectory(
+        self,
+        agent: str,
+        phase: str,
+        decision_type: str,
+        action,
+        candidates: Optional[List[str]] = None,
+        extra_obs: Optional[Dict] = None,
+    ) -> None:
+        """phase 模块统一通过此入口写 trajectory。"""
+        obs = {
+            "my_role": self.players[agent].role if agent in self.players else "",
+            "my_belief": snapshot_belief(self.belief_states.get(agent)),
+            "public_log_tail": self.public_log[-20:],
+            "private_log_tail": self.private_log.get(agent, [])[-12:],
+            "alive": self.alive_names(),
+            "day": self.day,
+        }
+        if extra_obs:
+            obs.update(extra_obs)
+        self.trajectories.record(
+            agent=agent,
+            phase=phase,
+            day=self.day,
+            decision_type=decision_type,
+            obs=obs,
+            action=action,
+            candidates=candidates,
+        )

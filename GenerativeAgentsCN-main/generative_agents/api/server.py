@@ -97,13 +97,17 @@ def _require(game_id: str):
 # ==================== 路由 ====================
 @app.post("/api/games", response_model=GameSummary)
 def create_game(req: NewGameRequest):
-    name = req.name or f"api-{utils.get_timer().get_date('%Y%m%d-%H%M%S') if False else ''}".strip("-") or "api-game"
-    # 避免 utils.get_timer() 在 create 之前被调；用一个简单 fallback：
-    if not req.name:
-        from datetime import datetime as _dt
-        name = f"api-{_dt.now().strftime('%Y%m%d-%H%M%S')}"
-    else:
-        name = req.name
+    """创建对局。注意：此请求会同步执行：
+      1. 加载 853KB maze.json + 建空间索引（~1-2s）
+      2. 读 12 份 agent.json，建 12 个 Agent 对象（~1-2s）
+      3. reset_game() 给 12 个 Agent 创建 LLM 客户端（首次 `import openai` ~1-2s）
+      总计 4-10 秒，请耐心等待。
+    """
+    import time
+    from datetime import datetime as _dt
+
+    t_start = time.perf_counter()
+    name = req.name if req.name else f"api-{_dt.now().strftime('%Y%m%d-%H%M%S')}"
 
     players = req.players or DEFAULT_WEREWOLF_PLAYERS
     if len(players) != 12:
@@ -113,14 +117,11 @@ def create_game(req: NewGameRequest):
     if os.path.exists(checkpoints_folder):
         raise HTTPException(status_code=409, detail=f"对局 {name} 已存在")
 
-    config = build_werewolf_config(
-        "20240213-18:00",
-        10,
-        players,
-        load_agent_base(),
-    )
+    config = build_werewolf_config("20240213-18:00", 10, players, load_agent_base())
     if not req.write_memory:
         config["agent_base"]["associate"] = {"disabled": True}
+    t_config = time.perf_counter()
+    print(f"[create_game] {name}: 配置就绪 {(t_config - t_start) * 1000:.0f}ms")
 
     director = WerewolfDirector(
         name,
@@ -131,7 +132,16 @@ def create_game(req: NewGameRequest):
         use_llm=req.use_llm,
         write_memory=req.write_memory,
     )
+    t_init = time.perf_counter()
+    print(
+        f"[create_game] {name}: WerewolfDirector 初始化完毕 "
+        f"{(t_init - t_config) * 1000:.0f}ms (含 maze + 12 agents + reset_game)"
+    )
+
     sess = registry.create(name, director)
+    print(
+        f"[create_game] {name}: 总耗时 {(time.perf_counter() - t_start) * 1000:.0f}ms"
+    )
     return _summarize(sess)
 
 
@@ -203,6 +213,12 @@ def get_agent_private(game_id: str, name: str):
     if name not in director.players:
         raise HTTPException(status_code=404, detail=f"agent {name} not found")
     player = director.players[name]
+    bs = director.belief_of(name) if hasattr(director, "belief_of") else None
+    trajectory = []
+    if hasattr(director, "trajectories"):
+        trajectory = [
+            s.to_dict() for s in director.trajectories.all_for(name)
+        ][-30:]
     return {
         "name": name,
         "role": player.role,
@@ -212,7 +228,19 @@ def get_agent_private(game_id: str, name: str):
         "death_reason": player.death_reason,
         "private_log": director.private_log.get(name, []),
         "seer_checks": director.seer_checks.get(name, {}) if player.role == "seer" else None,
+        "belief": bs.to_dict() if bs else None,
+        "trajectory_tail": trajectory,
     }
+
+
+@app.get("/api/games/{game_id}/trajectories")
+def get_trajectories(game_id: str):
+    """完整 trajectory JSON。RL 训练流水线主要消费这个端点。"""
+    sess = _require(game_id)
+    director = sess.director
+    if not hasattr(director, "trajectories"):
+        return {"steps": [], "count": 0}
+    return director.trajectories.to_dict()
 
 
 @app.get("/api/games/{game_id}/report", response_class=PlainTextResponse)

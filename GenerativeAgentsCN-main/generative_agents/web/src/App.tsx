@@ -4,6 +4,7 @@ import type { GameState, GameSummary, LiveEvent, StepPhase } from "./types";
 import { MapPanel } from "./components/MapPanel";
 import { TimelinePanel } from "./components/TimelinePanel";
 import { AgentPanel } from "./components/AgentPanel";
+import { NewGameDialog } from "./components/NewGameDialog";
 
 export default function App() {
   const [summary, setSummary] = useState<GameSummary | null>(null);
@@ -11,6 +12,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [liveLog, setLiveLog] = useState<LiveEvent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const [showNewGame, setShowNewGame] = useState(false);
 
   // 启动 WebSocket 订阅
   useEffect(() => {
@@ -33,21 +35,18 @@ export default function App() {
     }
   }, [summary?.id]);
 
-  const handleCreate = async () => {
-    setBusy(true);
+  const handleGameCreated = useCallback(async (created: GameSummary) => {
+    setSummary(created);
+    setLiveLog([]);
+    setSelectedAgent(null);
+    // setup 已在 dialog 内调用完毕；这里只拉一次完整 state
     try {
-      const s = await api.createGame({ use_llm: false });
-      setSummary(s);
-      setLiveLog([]);
-      const setupResp = await api.setup(s.id);
-      setSummary(setupResp);
-      await refreshState();
+      const s = await api.fetchState(created.id);
+      setState(s);
     } catch (e) {
-      alert("新建失败：" + (e as Error).message);
-    } finally {
-      setBusy(false);
+      console.warn("初始 state 拉取失败", e);
     }
-  };
+  }, []);
 
   const handleStep = async (phase: StepPhase) => {
     if (!summary) return;
@@ -75,8 +74,8 @@ export default function App() {
             : "尚未开局"}
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: "0.4em" }}>
-          <button onClick={handleCreate} disabled={busy}>
-            新开一局（不调 LLM）
+          <button onClick={() => setShowNewGame(true)} disabled={busy}>
+            新开一局…
           </button>
           <button
             onClick={() => handleStep("social-pre")}
@@ -116,6 +115,12 @@ export default function App() {
           onSelect={setSelectedAgent}
         />
       </main>
+
+      <NewGameDialog
+        open={showNewGame}
+        onClose={() => setShowNewGame(false)}
+        onCreated={handleGameCreated}
+      />
     </div>
   );
 }
