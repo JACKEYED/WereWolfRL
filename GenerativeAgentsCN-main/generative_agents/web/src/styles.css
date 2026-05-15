@@ -1,0 +1,177 @@
+/* 文件作用：江南古镇控制台的极简样式。配色走水墨蓝灰、米白、深木褐。 */
+
+:root {
+  --bg: #f5efe2;
+  --panel: #fbf6ea;
+  --ink: #2b2b2b;
+  --muted: #7b7669;
+  --accent: #4a6b88;
+  --accent-dark: #2f4a63;
+  --line: #d8cfb8;
+  --wolf: #a04040;
+  --good: #4a7a4a;
+  --secret: #8a6a3a;
+  --movement: #708090;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", "Source Han Serif SC", serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+}
+
+.header {
+  padding: 0.6em 1.2em;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 1em;
+  background: var(--panel);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 1.2em;
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+
+.header .status {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.header button {
+  background: var(--accent);
+  color: white;
+  border: 0;
+  padding: 0.4em 0.9em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+.header button:hover { background: var(--accent-dark); }
+.header button:disabled { background: #aaa; cursor: not-allowed; }
+
+.main {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr;
+  gap: 1em;
+  padding: 1em;
+  overflow: hidden;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel h2 {
+  margin: 0;
+  padding: 0.6em 1em;
+  font-size: 1em;
+  font-weight: 600;
+  background: rgba(0,0,0,0.03);
+  border-bottom: 1px solid var(--line);
+  color: var(--accent-dark);
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0.6em 1em;
+  font-size: 0.9em;
+}
+
+/* Map placeholder */
+.map-placeholder {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background:
+    repeating-linear-gradient(45deg, transparent 0 8px, rgba(0,0,0,0.025) 8px 9px);
+}
+
+.map-placeholder .hint {
+  text-align: center;
+  padding: 1em;
+}
+
+.location-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6em;
+  padding: 1em;
+  width: 100%;
+}
+.location-tile {
+  border: 1px dashed var(--line);
+  border-radius: 3px;
+  padding: 0.6em;
+  font-size: 0.85em;
+  background: rgba(255,255,255,0.4);
+}
+.location-tile .name {
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+.location-tile .occupants {
+  margin-top: 0.3em;
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+/* Timeline */
+.record {
+  padding: 0.5em 0;
+  border-bottom: 1px dashed var(--line);
+}
+.record:last-child { border-bottom: 0; }
+.record .meta { font-size: 0.8em; color: var(--muted); margin-bottom: 0.2em; }
+.record .scope { font-weight: 600; margin-right: 0.4em; }
+.record.scope-public  .scope { color: var(--accent-dark); }
+.record.scope-secret  .scope { color: var(--secret); }
+.record.scope-social  .scope { color: var(--good); }
+.record.scope-movement .scope { color: var(--movement); }
+.record.scope-system  .scope { color: var(--wolf); }
+
+/* Agent panel */
+.agent-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4em;
+  padding: 0.6em 1em;
+  border-bottom: 1px solid var(--line);
+}
+.agent-chip {
+  text-align: left;
+  border: 1px solid var(--line);
+  background: white;
+  padding: 0.4em 0.6em;
+  font-size: 0.85em;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.agent-chip.dead { opacity: 0.45; text-decoration: line-through; }
+.agent-chip.selected { background: var(--accent); color: white; border-color: var(--accent); }
+
+.agent-detail h3 { margin: 0.3em 0 0.6em 0; color: var(--accent-dark); }
+.agent-detail .role { font-size: 0.9em; color: var(--muted); margin-bottom: 0.6em; }
+.agent-detail ul { padding-left: 1.2em; margin: 0.4em 0; }
+.agent-detail li { margin-bottom: 0.3em; line-height: 1.4em; }

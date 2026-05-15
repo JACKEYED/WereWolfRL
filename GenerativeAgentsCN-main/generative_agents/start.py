@@ -93,7 +93,7 @@ def main():
     players = parse_players(args.players)
     validate_players(players)
 
-    from modules.werewolf import WerewolfDirector, build_werewolf_config, load_agent_base
+    from modules.werewolf.director import WerewolfDirector, build_werewolf_config, load_agent_base
 
     game_name = args.name.strip() or default_game_name()
     checkpoints_folder = os.path.join("results", "checkpoints", game_name)
