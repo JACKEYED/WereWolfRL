@@ -15,18 +15,18 @@ EXPECTED_PLAYER_COUNT = 12
 GAME_START_TIME = "20240213-18:00"
 REPLAY_STRIDE_MINUTES = 10
 DEFAULT_PLAYERS = [
-    "亚当",
-    "阿比盖尔",
-    "伊莎贝拉",
-    "亚瑟",
-    "简",
-    "汤姆",
-    "山姆",
-    "詹妮弗",
-    "弗朗西斯科",
-    "拉吉夫",
-    "拉托亚",
-    "山本百合子",
+    "陈砚秋",
+    "苏蘅",
+    "林宛娘",
+    "周文卿",
+    "孟雨棠",
+    "沈鹤年",
+    "阿福",
+    "温知微",
+    "白潜舟",
+    "徐慎之",
+    "柳青禾",
+    "吴掌柜",
 ]
 
 # Kept for older helper scripts that imported start.personas.
@@ -48,7 +48,7 @@ def load_role_map(path):
 
 def validate_players(players):
     if len(players) != EXPECTED_PLAYER_COUNT:
-        raise ValueError("斯坦福小镇狼人杀固定为12人局，请选择正好12名玩家。")
+        raise ValueError("江南古镇狼人杀固定为12人局，请选择正好12名玩家。")
 
     duplicated = sorted({name for name in players if players.count(name) > 1})
     if duplicated:
@@ -79,7 +79,7 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv(find_dotenv())
 
-    parser = argparse.ArgumentParser(description="run one full Stanford-town Werewolf game")
+    parser = argparse.ArgumentParser(description="run one full 江南古镇 Werewolf game")
     parser.add_argument("--name", type=str, default="", help="game save name; auto-generated when omitted")
     parser.add_argument("--seed", type=int, default=None, help="random seed for role assignment and fallback choices")
     parser.add_argument("--players", type=str, default="", help="comma-separated 12 player names")
@@ -129,7 +129,7 @@ def main():
     )
     state = director.run()
 
-    print("\n斯坦福小镇狼人杀模拟完成。")
+    print("\n江南古镇狼人杀模拟完成。")
     print(f"本局名称：{game_name}")
     print(f"胜利阵营：{state.get('winner') or '未决'}")
     print(f"检查点目录：{checkpoints_folder}")

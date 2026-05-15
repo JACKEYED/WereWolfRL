@@ -49,41 +49,60 @@ ROLE_GOALS = {
 SAFETY_DAY_LIMIT = 12
 
 DEFAULT_WEREWOLF_PLAYERS = [
-    "亚当",
-    "阿比盖尔",
-    "伊莎贝拉",
-    "亚瑟",
-    "简",
-    "汤姆",
-    "山姆",
-    "詹妮弗",
-    "弗朗西斯科",
-    "拉吉夫",
-    "拉托亚",
-    "山本百合子",
+    "陈砚秋",
+    "苏蘅",
+    "林宛娘",
+    "周文卿",
+    "孟雨棠",
+    "沈鹤年",
+    "阿福",
+    "温知微",
+    "白潜舟",
+    "徐慎之",
+    "柳青禾",
+    "吴掌柜",
 ]
 
+# 江南古镇场景：地点 key 决定叙事身份，address 仍指向现有 maze 瓦片地图，
+# 瓦片美术替换为单独工作单元；prompt/日志/回放文字全部走江南显示名。
 LOCATIONS = {
     "square": ["the Ville", "约翰逊公园", "公园", "公园花园"],
-    "tavern": ["the Ville", "玫瑰酒吧", "酒吧", "酒吧顾客座位"],
-    "werewolf_room": ["the Ville", "玫瑰酒吧", "酒吧", "吧台后面"],
-    "god_room": ["the Ville", "奥克山学院", "图书馆"],
-    "witch_room": ["the Ville", "柳树市场和药店", "商店", "药店柜台后面"],
-    "cafe": ["the Ville", "霍布斯咖啡馆", "咖啡馆", "咖啡馆顾客座位"],
-    "market": ["the Ville", "柳树市场和药店", "商店", "杂货店柜台"],
-    "dorm_lounge": ["the Ville", "奥克山学院宿舍", "公共休息室", "公共休息室沙发"],
-    "artist_lounge": ["the Ville", "艺术家共居空间", "公共休息室", "公共休息室沙发"],
+    "teahouse": ["the Ville", "霍布斯咖啡馆", "咖啡馆", "咖啡馆顾客座位"],
+    "clinic": ["the Ville", "柳树市场和药店", "商店", "药店柜台后面"],
+    "stargazer": ["the Ville", "奥克山学院", "图书馆"],
+    "watchman": ["the Ville", "奥克山学院宿舍", "公共休息室", "公共休息室沙发"],
+    "dyehouse": ["the Ville", "玫瑰酒吧", "酒吧", "吧台后面"],
+    "nightmarket": ["the Ville", "柳树市场和药店", "商店", "杂货店柜台"],
+    "inn": ["the Ville", "艺术家共居空间", "公共休息室", "公共休息室沙发"],
     "graveyard": ["the Ville", "约翰逊公园", "公园"],
 }
 
-SOCIAL_SPOTS = [
-    LOCATIONS["tavern"],
-    LOCATIONS["cafe"],
-    LOCATIONS["square"],
-    LOCATIONS["market"],
-    LOCATIONS["dorm_lounge"],
-    LOCATIONS["artist_lounge"],
-]
+LOCATION_DISPLAY = {
+    "square": "镇中广场",
+    "teahouse": "听雨茶馆",
+    "clinic": "同德医馆",
+    "stargazer": "观星楼",
+    "watchman": "更夫房",
+    "dyehouse": "后山染坊",
+    "nightmarket": "码头夜市",
+    "inn": "归云客栈",
+    "graveyard": "镇外乱葬岗",
+}
+
+ROLE_LOCATIONS = {
+    "werewolf": "dyehouse",
+    "seer": "stargazer",
+    "witch": "clinic",
+    "guard": "watchman",
+    "hunter": "inn",
+}
+
+SOCIAL_SPOT_KEYS = ["teahouse", "nightmarket", "square", "inn"]
+SOCIAL_SPOTS = [LOCATIONS[k] for k in SOCIAL_SPOT_KEYS]
+
+
+def shichen(day: int, slot: str) -> str:
+    return f"第{day}日{slot}"
 
 
 class TextResponse(BaseModel):
@@ -193,22 +212,28 @@ class WerewolfDirector:
         self.day = 0
         self.step = int(config.get("step", 0))
         self.winner: Optional[str] = None
+        self.gossip_mill = None
+        try:
+            from modules.gossip import GossipMill
+            self.gossip_mill = GossipMill(self.random)
+        except Exception as exc:
+            self.logger.warning(f"流言模块未加载：{exc}")
 
     def run(self) -> dict:
         self.setup()
-        self.free_social_window("开场黄昏", rounds=3)
+        self.free_social_window("开场申时（黄昏踩点）", rounds=3)
 
         for day in range(1, SAFETY_DAY_LIMIT + 1):
             self.day = day
             self.night_phase(day)
-            if self.check_win("夜晚结算"):
+            if self.check_win("子时结算"):
                 break
 
             self.day_phase(day)
-            if self.check_win("白天投票"):
+            if self.check_win("辰时议会"):
                 break
 
-            self.free_social_window(f"第{day}天黄昏余波", rounds=2)
+            self.free_social_window(shichen(day, "申时余韵"), rounds=2)
 
         if not self.winner:
             self.add_record(
@@ -239,7 +264,7 @@ class WerewolfDirector:
         self.add_record(
             "public",
             "开局",
-            "12名居民被邀请参加一场真实场景狼人杀。身份牌已经私下发放，白天与夜晚的行动都会发生在小镇地图中。",
+            "江南古镇风云骤起。12 名镇民暗中收到身份牌，白日议政广场，黑夜各归其所，狼影潜行。",
         )
         self.save_checkpoint("开局")
 
@@ -263,8 +288,8 @@ class WerewolfDirector:
             self.players[name] = WerewolfPlayer(name=name, role=self.role_map[name])
 
     def night_phase(self, day: int) -> None:
-        phase = f"第{day}夜"
-        self.add_record("public", phase, f"夜幕降临。第{day}夜开始，玩家返回各自位置，秘密行动依次发生。")
+        phase = shichen(day, "子时")
+        self.add_record("public", phase, f"夜幕降临。{phase}起，江南古镇万籁俱寂，秘密行动依次发生。")
 
         wolf_target = self.werewolf_action(phase)
         guard_target = self.guard_action(phase)
@@ -274,9 +299,15 @@ class WerewolfDirector:
 
         deaths: Dict[str, List[str]] = {}
         if wolf_target:
-            if wolf_target == guard_target:
+            guarded = wolf_target == guard_target
+            saved = wolf_target == saved_by_witch
+            if guarded and saved:
+                # 标准规则：同守同救 → 被守护者仍然死亡
+                deaths.setdefault(wolf_target, []).append("同守同救")
+                self.add_record("secret", phase, f"{wolf_target} 同时被守卫守护与女巫救起，互冲抵消，仍然死亡。")
+            elif guarded:
                 self.add_record("secret", phase, f"守卫保护了 {wolf_target}，狼刀没有造成死亡。")
-            elif wolf_target == saved_by_witch:
+            elif saved:
                 self.add_record("secret", phase, f"女巫使用解药救下了 {wolf_target}。")
             else:
                 deaths.setdefault(wolf_target, []).append("狼人夜袭")
@@ -290,18 +321,38 @@ class WerewolfDirector:
                 killed.append(target)
                 self.kill_player(target, "、".join(reasons), phase)
 
+        dawn = shichen(day + 1, "卯时")
         if killed:
             self.add_record(
                 "public",
-                phase,
-                f"天亮了，昨夜 {self.join_names(killed)} 死亡。公开信息不翻身份。",
+                dawn,
+                f"{dawn}破晓，昨夜 {self.join_names(killed)} 殁于镇中。身份不翻，棺木抬归乱葬岗。",
             )
         else:
-            self.add_record("public", phase, "天亮了，昨夜无人死亡，村庄出现了平安夜。")
+            self.add_record("public", dawn, f"{dawn}破晓，昨夜镇上风平浪静，是个平安夜。")
 
         if seer_info:
             name, target, result = seer_info
-            self.add_record("secret", phase, f"{name} 查验 {target}，结果是 {result}。")
+            self.add_record("secret", phase, f"{name} 在观星楼夜观天象，问卜 {target}，所得 {result}。")
+
+        # NPC 流言：把昨夜发生的事用保守扭曲方式分发给清晨在场玩家
+        if self.gossip_mill:
+            night_events = {
+                "wolf_target": wolf_target,
+                "saved_by_witch": saved_by_witch,
+                "poison_target": poison_target,
+                "witch_visited_clinic": (saved_by_witch is not None) or (poison_target is not None),
+                "guard_active": guard_target is not None,
+                "seer_active": seer_info is not None,
+                "wolves_met": len(self.alive_names(role="werewolf")) > 0,
+            }
+            gossip_lines = self.gossip_mill.spin(night_events, day)
+            audience = self.alive_names()
+            for npc_name, line in gossip_lines:
+                record = f"{npc_name}在镇上闲谈：{line}"
+                self.add_record("public", dawn, record, location="镇中广场")
+                for player_name in audience:
+                    self.private_log[player_name].append(f"{dawn} {record}")
 
         self.save_checkpoint(phase)
 
@@ -311,8 +362,8 @@ class WerewolfDirector:
         if not wolves or not candidates:
             return None
 
-        self.move_many(wolves, LOCATIONS["werewolf_room"], "进入狼人房间低声商量击杀目标", phase, "狼会")
-        self.save_checkpoint(f"{phase}-狼人会面")
+        self.move_many(wolves, LOCATIONS["dyehouse"], "潜入后山染坊低声商量击杀目标", phase, "狼会")
+        self.save_checkpoint(f"{phase}-狼队夜会")
 
         proposals = []
         chats: List[Tuple[str, str]] = []
@@ -343,7 +394,7 @@ class WerewolfDirector:
 
         self.record_dialogue(
             f"{wolves[0]} -> 狼队",
-            LOCATIONS["werewolf_room"],
+            LOCATIONS["dyehouse"],
             chats,
             audience=wolves,
             public=False,
@@ -364,7 +415,7 @@ class WerewolfDirector:
         candidates = self.alive_names()
         if self.guard_last_target in candidates and len(candidates) > 1:
             candidates = [name for name in candidates if name != self.guard_last_target]
-        self.move_agent(guard, LOCATIONS["god_room"], "在神职房间决定今晚守护谁", phase, 10, "守护")
+        self.move_agent(guard, LOCATIONS["watchman"], "从更夫房提灯出发，决定今晚守护谁", phase, 10, "守护")
 
         target = self.ask_choice(
             guard,
@@ -396,7 +447,7 @@ class WerewolfDirector:
         if not candidates:
             return None
 
-        self.move_agent(seer, LOCATIONS["god_room"], "在神职房间查验一名玩家阵营", phase, 10, "查验")
+        self.move_agent(seer, LOCATIONS["stargazer"], "登观星楼夜观天象，问卜一名玩家的阵营", phase, 10, "查验")
         target = self.ask_choice(
             seer,
             phase,
@@ -416,29 +467,40 @@ class WerewolfDirector:
         if not witch:
             return None, None
 
-        self.move_agent(witch, LOCATIONS["witch_room"], "在自己的房间判断是否使用解药或毒药", phase, 10, "药剂")
+        self.move_agent(witch, LOCATIONS["clinic"], "在同德医馆熬药，判断是否使用解药或毒药", phase, 10, "药剂")
         saved_by_witch = None
         poison_target = None
+        used_potion_tonight = False  # 标准规则：一夜不能同用两药
 
+        # 解药：标准规则下，女巫只能在首夜自救；其余夜可救他人
         if self.witch_antidote and wolf_target:
-            decision = self.ask_choice(
-                witch,
-                phase,
-                (
-                    f"你是女巫。今晚你得知 {wolf_target} 被狼人袭击。"
-                    "你还有解药。请选择是否使用解药。"
-                ),
-                ["救", "不救"],
-                fallback="救",
-            )
-            if decision == "救":
-                saved_by_witch = wolf_target
-                self.witch_antidote = False
-                text = f"{phase}：你使用解药救下了 {wolf_target}。"
+            self_save_allowed = (wolf_target != witch) or (self.day == 1)
+            if self_save_allowed:
+                decision = self.ask_choice(
+                    witch,
+                    phase,
+                    (
+                        f"你是女巫。今晚你得知 {wolf_target} 被狼人袭击。"
+                        "你还有解药。请选择是否使用解药。"
+                        + ("（首夜可自救）" if wolf_target == witch else "")
+                    ),
+                    ["救", "不救"],
+                    fallback="救",
+                )
+                if decision == "救":
+                    saved_by_witch = wolf_target
+                    self.witch_antidote = False
+                    used_potion_tonight = True
+                    text = f"{phase}：你使用解药救下了 {wolf_target}。"
+                    self.private_log[witch].append(text)
+                    self.safe_remember(witch, text, node_type="thought", poignancy=9)
+            else:
+                # 女巫在非首夜被刀，按规则不可自救，但她仍能感知被刀
+                text = f"{phase}：你今晚被狼人袭击，但按规矩不能给自己用解药。"
                 self.private_log[witch].append(text)
                 self.safe_remember(witch, text, node_type="thought", poignancy=9)
 
-        if self.witch_poison:
+        if self.witch_poison and not used_potion_tonight:
             candidates = ["不毒"] + [name for name in self.alive_names() if name != witch]
             decision = self.ask_choice(
                 witch,
@@ -468,14 +530,14 @@ class WerewolfDirector:
         hunter = self.role_holder("hunter", alive_only=True)
         if not hunter:
             return
-        self.move_agent(hunter, self.home_address(hunter), "在房间中保持警觉，等待死亡时触发猎人技能", phase, 10, "猎枪")
-        self.private_log[hunter].append(f"{phase}：你仍然保留猎人开枪技能。")
+        self.move_agent(hunter, LOCATIONS["inn"], "在归云客栈厢房擦拭家伙，等待临死反扑之机", phase, 10, "猎枪")
+        self.private_log[hunter].append(f"{phase}：你仍然保留临死反扑的技能。")
 
     def day_phase(self, day: int) -> None:
-        phase = f"第{day}天"
+        phase = shichen(day, "辰时议会")
         alive = self.alive_names()
-        self.move_many(alive, LOCATIONS["square"], "在村庄广场集合参加白天议会", phase, "议会")
-        self.add_record("public", phase, f"所有幸存玩家在村庄广场集合。发言顺序：{self.join_names(alive)}。")
+        self.move_many(alive, LOCATIONS["square"], "在镇中广场牌坊下集合参加白日议会", phase, "议会")
+        self.add_record("public", phase, f"所有幸存者在镇中广场集合。发言顺序：{self.join_names(alive)}。")
         self.save_checkpoint(f"{phase}-集合")
 
         speeches = []
@@ -559,7 +621,7 @@ class WerewolfDirector:
         if exile is None:
             tied = self.tied_candidates(votes)
             if len(tied) > 1:
-                self.add_record("public", phase, f"首轮投票平票：{self.join_names(tied)}。平票玩家进行简短辩解。")
+                self.add_record("public", phase, f"首轮投票平票：{self.join_names(tied)}。平票之人当众辩解。")
                 defenses = []
                 for name in tied:
                     defense = self.ask_text(
@@ -578,15 +640,16 @@ class WerewolfDirector:
                     public=True,
                     phase=phase,
                 )
-                revote_candidates = tied
+                # 标准规则：平票辩解后，二轮可投全场存活，不限于首轮平票人
+                revote_candidates = alive
                 revotes = self.collect_votes(phase, alive, revote_candidates, revote=True)
                 exile = self.resolve_vote(revotes)
 
         if exile:
-            self.add_record("public", phase, f"投票结果：{exile} 被村庄议会放逐。")
+            self.add_record("public", phase, f"议会决议：{exile} 被放逐出镇。")
             self.kill_player(exile, "白天放逐", phase)
         else:
-            self.add_record("public", phase, "投票没有形成唯一最高票，本轮无人被放逐。")
+            self.add_record("public", phase, "议会僵持，本轮无人被放逐。")
 
     def collect_votes(
         self,
@@ -664,12 +727,17 @@ class WerewolfDirector:
         player.alive = False
         player.death_reason = reason
         player.death_day = self.day
-        self.move_agent(name, LOCATIONS["graveyard"], "离开游戏，在旁观区等待最终复盘", phase, 999, "出局")
-        self.add_record("public", phase, f"{name} 已死亡，原因：{reason}。身份暂不公开。")
-        self.safe_broadcast(f"{name} 已死亡，原因：{reason}。身份暂不公开。", phase)
+        self.move_agent(name, LOCATIONS["graveyard"], "棺木抬出镇外，于乱葬岗等待最终复盘", phase, 999, "出局")
+        self.add_record("public", phase, f"{name} 已殁，死因：{reason}。身份暂不公开。")
+        self.safe_broadcast(f"{name} 已殁，死因：{reason}。身份暂不公开。", phase)
 
         if player.role == "hunter" and not player.used_hunter_shot:
-            self.hunter_shot(name, phase)
+            # 标准规则：被女巫毒药毒杀的猎人无法触发临死反扑
+            if "女巫毒药" in reason:
+                player.used_hunter_shot = True
+                self.add_record("public", phase, f"{name} 七窍流毒，临死反扑之力尽失。")
+            else:
+                self.hunter_shot(name, phase)
 
     def hunter_shot(self, hunter: str, phase: str) -> None:
         player = self.players[hunter]
@@ -681,16 +749,16 @@ class WerewolfDirector:
         target = self.ask_choice(
             hunter,
             phase,
-            "你是猎人并且已经死亡。你可以开枪带走一名仍存活的玩家，也可以选择不开枪。",
+            "你是猎人，已殁。临死反扑之机：可指认一名仍存活的玩家与你同葬，或选择放手。",
             ["不开枪"] + candidates,
             fallback=self.heuristic_target(hunter, candidates),
         )
         if target == "不开枪":
-            self.add_record("public", phase, f"猎人 {hunter} 死亡后选择不开枪。")
+            self.add_record("public", phase, f"猎人 {hunter} 临死前放下了手。")
             return
 
-        self.add_record("public", phase, f"猎人 {hunter} 死亡后开枪带走 {target}。")
-        self.kill_player(target, f"猎人 {hunter} 开枪", phase)
+        self.add_record("public", phase, f"猎人 {hunter} 临死反扑，带走 {target}。")
+        self.kill_player(target, f"猎人 {hunter} 临死反扑", phase)
 
     def check_win(self, phase: str) -> bool:
         if self.winner:
@@ -784,7 +852,7 @@ class WerewolfDirector:
             if response_kind == "text"
             else '只输出 JSON：{"res": "候选项原文"}，不要输出候选项之外的内容。'
         )
-        return f"""你正在一个真实小镇场景中参加12人狼人杀。你必须像角色本人一样思考和说话。
+        return f"""你正在民国年间的江南古镇里参与一场十二人狼人杀。你必须像角色本人一样思考、措辞。
 
 角色档案：
 {self.agent_profile(name)}
@@ -1163,6 +1231,10 @@ class WerewolfDirector:
         return text or "我还需要再观察一下。"
 
     def location_name(self, address: Sequence[str]) -> str:
+        addr = list(address)
+        for key, bound in LOCATIONS.items():
+            if addr == bound:
+                return LOCATION_DISPLAY[key]
         return "，".join(address[1:]) if len(address) > 1 else address[0]
 
     def join_names(self, names: Iterable[str]) -> str:
