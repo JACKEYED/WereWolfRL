@@ -110,6 +110,34 @@ npm run dev
 { "type": "record", "scope": "public", "phase": "第1日子时", "text": "...", "actors": [...], "location": "...", "day": 1 }
 ```
 
+## RL 训练（v1）
+
+完整 GRPO 训练管线已就位（[modules/rl/](../modules/rl/)）：
+
+```
+modules/rl/
+├── config.py     # RLConfig 超参数 dataclass
+├── buffer.py     # GroupRecord + ReplayBuffer + reward 累计 helper
+├── loss.py       # GRPO loss（torch 版 + 纯 Python 镜像版）
+├── collector.py  # 并行起 N 局，按 role × seat 凑 group
+└── trainer.py    # GRPOTrainer 包 trl + dry-run 模式
+```
+
+入口：
+
+```bash
+# dry-run（无 GPU 验证管线，仅走 collect → pack → metric）
+python rl_train.py --dry --cycles 1 --groups-per-role 1 --group-size 2
+
+# 真训（先在 :8001 host 一个 vLLM serving Qwen-7B）
+vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 &
+pip install -r requirements-rl.txt
+python rl_train.py --cycles 30 --groups-per-role 20 --group-size 8
+```
+
+每 cycle：6 身份 × 20 group × 8 局 = 960 局，wall time 约 60 min（8 并发）+ 30 min GRPO 更新。
+LoRA 权重落到 `results/rl/cycle_{n:03d}/`。
+
 ## 已知限制 & 后续工作
 
 1. **单进程单局**：`modules/game.py` 用全局单例，同进程同时只能跑一局。未来要并行需要重构 game singleton。

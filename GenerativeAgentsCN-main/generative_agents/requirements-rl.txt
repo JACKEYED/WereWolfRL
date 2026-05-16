@@ -1,0 +1,23 @@
+# RL 训练专用依赖（v1 GRPO 训练管线）。
+# 主项目依赖在 requirements.txt；这里只列 RL 训练 + vLLM serving 用的额外包。
+#
+# 安装：pip install -r requirements-rl.txt
+# 至少需要 1 张 A100/H100 80G 才能跑 Qwen-7B + LoRA + ref 模型 + GRPO 训练。
+
+# 训练侧
+torch>=2.4.0
+transformers>=4.45.0
+peft>=0.13.0
+trl>=0.12.0
+accelerate>=1.0.0
+bitsandbytes>=0.43.0      # 可选：8-bit / 4-bit 量化节省显存
+datasets>=2.20.0          # trl 内部用得到
+
+# vLLM serving 侧
+vllm>=0.6.0               # actor model HTTP 接口（OpenAI 兼容）
+
+# 训练监控
+wandb>=0.18.0
+
+# 性能（可选）
+flash-attn>=2.6.0; sys_platform != "win32"   # Linux 装；Windows 跳

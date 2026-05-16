@@ -88,6 +88,14 @@ def main():
     parser.add_argument("--log", type=str, default="", help="optional log file name under checkpoint folder")
     parser.add_argument("--no-llm", action="store_true", help="use deterministic fallbacks instead of calling the LLM API")
     parser.add_argument("--no-memory", action="store_true", help="do not write extra Werewolf memory nodes during this run")
+    parser.add_argument(
+        "--scene",
+        type=str,
+        default="game",
+        choices=["game", "social"],
+        help="game = v1 纯狼人杀（RL 训练用，跳过开场社交/申时余韵/含 NPC 流言；prompt 中性现代汉语）；"
+             "social = 江南古镇完整叙事（演示/回放用）",
+    )
     args = parser.parse_args()
 
     players = parse_players(args.players)
@@ -125,6 +133,7 @@ def main():
         role_map=load_role_map(args.role_map),
         use_llm=not args.no_llm,
         write_memory=not args.no_memory,
+        scene_mode=args.scene,
         logger=logger,
     )
     state = director.run()

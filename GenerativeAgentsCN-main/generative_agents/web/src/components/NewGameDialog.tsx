@@ -15,6 +15,7 @@ export function NewGameDialog({ open, onClose, onCreated }: Props) {
   const [useLlm, setUseLlm] = useState(false);
   const [writeMemory, setWriteMemory] = useState(false);
   const [seed, setSeed] = useState("");
+  const [sceneMode, setSceneMode] = useState<"social" | "game">("social");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +26,7 @@ export function NewGameDialog({ open, onClose, onCreated }: Props) {
       setUseLlm(false);
       setWriteMemory(false);
       setSeed("");
+      setSceneMode("social");
       setError(null);
     }
   }, [open]);
@@ -41,9 +43,11 @@ export function NewGameDialog({ open, onClose, onCreated }: Props) {
         use_llm: boolean;
         write_memory: boolean;
         seed?: number;
+        scene_mode: "social" | "game";
       } = {
         use_llm: useLlm,
         write_memory: writeMemory,
+        scene_mode: sceneMode,
       };
       if (name.trim()) opts.name = name.trim();
       if (seed.trim()) {
@@ -97,6 +101,40 @@ export function NewGameDialog({ open, onClose, onCreated }: Props) {
               autoFocus
             />
           </label>
+
+          <div className="field">
+            <span className="field-label">场景模式</span>
+            <div className="field-radio-group">
+              <label className="radio-option">
+                <input
+                  type="radio"
+                  name="scene_mode"
+                  value="social"
+                  checked={sceneMode === "social"}
+                  onChange={() => setSceneMode("social")}
+                  disabled={busy}
+                />
+                <span>
+                  <strong>观赏模式（social）</strong>
+                  <small> · 民国江南古镇叙事完整版，含开场社交、辩论、申时余韵、NPC 流言</small>
+                </span>
+              </label>
+              <label className="radio-option">
+                <input
+                  type="radio"
+                  name="scene_mode"
+                  value="game"
+                  checked={sceneMode === "game"}
+                  onChange={() => setSceneMode("game")}
+                  disabled={busy}
+                />
+                <span>
+                  <strong>训练模式（game / v1）</strong>
+                  <small> · 纯狼人杀，跳开场社交+申时余韵，辩论缩到 2 轮，中性现代汉语 prompt，专为 RL 训练设计</small>
+                </span>
+              </label>
+            </div>
+          </div>
 
           <label className="field field-check">
             <input

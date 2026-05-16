@@ -2,15 +2,7 @@
 
 from typing import Dict, List, Sequence, Tuple
 
-from modules.prompt import (
-    DAY_SPEECH_TASK,
-    DEBATE_TARGET_TASK,
-    TIE_DEFENSE_TASK,
-    debate_answer_task,
-    debate_question_task,
-    vote_task,
-)
-from modules.werewolf.locations import LOCATIONS, shichen
+from modules.werewolf.locations import LOCATIONS
 from modules.werewolf.llm_io import ask_choice, ask_text
 from modules.werewolf.player import fallback_speech
 from modules.werewolf.rules import resolve_vote, tied_candidates
@@ -18,12 +10,20 @@ from modules.werewolf.text_utils import join_names
 
 
 def day_phase(director, day: int) -> None:
-    phase = shichen(day, "辰时议会")
+    phase = director.phase_label(day, "day_council")
     alive = director.alive_names()
-    director.move_many(alive, LOCATIONS["square"], "在镇中广场牌坊下集合参加白日议会", phase, "议会")
-    director.add_record(
-        "public", phase, f"所有幸存者在镇中广场集合。发言顺序：{join_names(alive)}。"
+    gather_desc = (
+        "前往广场集合参加白天议会"
+        if director.scene_mode == "game"
+        else "在镇中广场牌坊下集合参加白日议会"
     )
+    director.move_many(alive, LOCATIONS["square"], gather_desc, phase, "议会")
+    gather_msg = (
+        f"全部幸存玩家集合于广场。发言顺序：{join_names(alive)}。"
+        if director.scene_mode == "game"
+        else f"所有幸存者在镇中广场集合。发言顺序：{join_names(alive)}。"
+    )
+    director.add_record("public", phase, gather_msg)
     director.save_checkpoint(f"{phase}-集合")
 
     speeches: List[Tuple[str, str]] = []
@@ -32,7 +32,7 @@ def day_phase(director, day: int) -> None:
             director,
             name,
             phase,
-            DAY_SPEECH_TASK,
+            director.task("day_speech"),
             fallback=fallback_speech(director.players[name].role),
             max_chars=180,
         )
@@ -73,25 +73,40 @@ def debate_phase(director, phase: str) -> None:
             director,
             challenger,
             phase,
-            DEBATE_TARGET_TASK,
+            director.task("debate_target"),
             candidates,
             fallback=director.heuristic_target(challenger, candidates),
+        )
+        director.record_trajectory(
+            agent=challenger, phase=phase, decision_type="choice",
+            action=target, candidates=candidates,
+            extra_obs={"choice_kind": "debate_target"},
         )
         question = ask_text(
             director,
             challenger,
             phase,
-            debate_question_task(target),
+            director.task("debate_question", target=target),
             fallback=f"{target}，你刚才的发言回避了关键死亡信息，我想听你解释为什么。",
             max_chars=120,
+        )
+        director.record_trajectory(
+            agent=challenger, phase=phase, decision_type="speech",
+            action=question,
+            extra_obs={"speech_kind": "debate_question", "target": target},
         )
         answer = ask_text(
             director,
             target,
             phase,
-            debate_answer_task(challenger),
+            director.task("debate_answer", challenger=challenger),
             fallback="我理解你的怀疑，但我刚才是在整理信息，不是在回避问题。",
             max_chars=120,
+        )
+        director.record_trajectory(
+            agent=target, phase=phase, decision_type="speech",
+            action=answer,
+            extra_obs={"speech_kind": "debate_answer", "challenger": challenger},
         )
         chats.extend([(challenger, question), (target, answer)])
 
@@ -114,16 +129,19 @@ def vote_phase(director, phase: str) -> None:
     if exile is None:
         tied = tied_candidates(votes)
         if len(tied) > 1:
-            director.add_record(
-                "public", phase, f"首轮投票平票：{join_names(tied)}。平票之人当众辩解。"
+            tie_msg = (
+                f"首轮投票平票：{join_names(tied)}。平票玩家各做 1-2 句辩解。"
+                if director.scene_mode == "game"
+                else f"首轮投票平票：{join_names(tied)}。平票之人当众辩解。"
             )
+            director.add_record("public", phase, tie_msg)
             defenses: List[Tuple[str, str]] = []
             for name in tied:
                 defense = ask_text(
                     director,
                     name,
                     phase,
-                    TIE_DEFENSE_TASK,
+                    director.task("tie_defense"),
                     fallback="我认为现在票我太急了，至少再听一轮信息会更稳。",
                     max_chars=120,
                 )
@@ -141,10 +159,20 @@ def vote_phase(director, phase: str) -> None:
             exile = resolve_vote(revotes)
 
     if exile:
-        director.add_record("public", phase, f"议会决议：{exile} 被放逐出镇。")
+        msg = (
+            f"投票结果：{exile} 被放逐出局。"
+            if director.scene_mode == "game"
+            else f"议会决议：{exile} 被放逐出镇。"
+        )
+        director.add_record("public", phase, msg)
         director.kill_player(exile, "白天放逐", phase)
     else:
-        director.add_record("public", phase, "议会僵持，本轮无人被放逐。")
+        msg = (
+            "投票未形成多数，本轮无人出局。"
+            if director.scene_mode == "game"
+            else "议会僵持，本轮无人被放逐。"
+        )
+        director.add_record("public", phase, msg)
 
 
 def collect_votes(
@@ -168,7 +196,7 @@ def collect_votes(
             director,
             voter,
             phase,
-            vote_task(revote=revote),
+            director.task("vote", revote=revote),
             candidates,
             fallback=director.heuristic_target(voter, candidates),
         )

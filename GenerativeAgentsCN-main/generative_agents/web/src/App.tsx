@@ -68,7 +68,7 @@ export default function App() {
         <h1>江南古镇 · 狼人杀控制台</h1>
         <span className="status">
           {summary
-            ? `当前对局：${summary.name} · 第${summary.day}日 · ${
+            ? `当前对局：${summary.name} · [${summary.scene_mode === "game" ? "训练" : "观赏"}] · 第${summary.day}日 · ${
                 summary.winner ?? "进行中"
               }`
             : "尚未开局"}
@@ -77,31 +77,36 @@ export default function App() {
           <button onClick={() => setShowNewGame(true)} disabled={busy}>
             新开一局…
           </button>
-          <button
-            onClick={() => handleStep("social-pre")}
-            disabled={busy || !summary}
-            title="开场黄昏踩点"
-          >
-            申时·开场
-          </button>
+          {summary?.scene_mode !== "game" && (
+            <button
+              onClick={() => handleStep("social-pre")}
+              disabled={busy || !summary}
+              title="开场黄昏踩点（仅 social 模式）"
+            >
+              申时·开场
+            </button>
+          )}
           <button
             onClick={() => handleStep("night")}
             disabled={busy || !summary || summary.finished}
           >
-            子时·夜
+            {summary?.scene_mode === "game" ? "夜晚" : "子时·夜"}
           </button>
           <button
             onClick={() => handleStep("day")}
             disabled={busy || !summary || summary.finished}
           >
-            辰时·议会
+            {summary?.scene_mode === "game" ? "白天" : "辰时·议会"}
           </button>
-          <button
-            onClick={() => handleStep("social-post")}
-            disabled={busy || !summary || summary.finished}
-          >
-            申时·余韵
-          </button>
+          {summary?.scene_mode !== "game" && (
+            <button
+              onClick={() => handleStep("social-post")}
+              disabled={busy || !summary || summary.finished}
+              title="申时余韵（仅 social 模式）"
+            >
+              申时·余韵
+            </button>
+          )}
         </div>
       </header>
 

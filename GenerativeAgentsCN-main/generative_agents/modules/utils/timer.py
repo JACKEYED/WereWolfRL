@@ -95,6 +95,14 @@ def set_timer(start=None):
 
 
 def get_timer():
+    """返回当前线程活跃 game 的 timer；无活跃 game 时退回进程级全局 timer（向后兼容）。
+    并行多 game 场景下，每个线程的 ActiveGameContext 指向各自的 Game，互不干扰。
+    """
+    from .namespace import ActiveGameContext
+
+    game = ActiveGameContext.get()
+    if game is not None and hasattr(game, "timer"):
+        return game.timer
     if not GenerativeAgentsMap.get(GenerativeAgentsKey.TIMER):
         set_timer()
     return GenerativeAgentsMap.get(GenerativeAgentsKey.TIMER)

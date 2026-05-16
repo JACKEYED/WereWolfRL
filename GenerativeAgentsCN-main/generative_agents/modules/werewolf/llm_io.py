@@ -113,7 +113,7 @@ def ask_text(director, name: str, phase: str, task: str, *, fallback: str, max_c
     agent = director.game.get_agent(name)
     prompt = build_agent_prompt(director, name, phase, task, response_kind="text")
     try:
-        return agent._llm.completion(
+        result = agent._llm.completion(
             prompt=prompt,
             return_type=TextResponse,
             callback=lambda res: clean_text(res, max_chars),
@@ -124,6 +124,10 @@ def ask_text(director, name: str, phase: str, task: str, *, fallback: str, max_c
     except Exception as exc:
         director.add_record("system", phase, f"{name} 文本决策失败，使用兜底：{exc}")
         return clean_text(fallback, max_chars)
+    # 抓本次调用的 prompt/text/logprob 到 director._last_capture
+    # 紧跟着的 record_trajectory() 会消费它。后续若再 ask 会被覆盖。
+    director.capture_last(name)
+    return result
 
 
 def ask_choice(
@@ -152,7 +156,7 @@ def ask_choice(
         response_kind="choice",
     )
     try:
-        return agent._llm.completion(
+        result = agent._llm.completion(
             prompt=prompt,
             return_type=ChoiceResponse,
             callback=lambda res: match_choice(res, choices, fallback),
@@ -163,3 +167,5 @@ def ask_choice(
     except Exception as exc:
         director.add_record("system", phase, f"{name} 选择决策失败，使用兜底：{exc}")
         return fallback
+    director.capture_last(name)
+    return result

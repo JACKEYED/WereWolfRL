@@ -15,6 +15,9 @@ class LLMModel:
 
         self._handle = self.setup(config)
         self._enabled = True
+        # 最近一次 _completion 调用的原始数据。RL trainer 通过 director._last_capture 提取。
+        # 字段：{"prompt": str, "text": str, "logprobs": List[float]|None, "tokens": List[str]|None}
+        self.last_call = None
 
     def setup(self, config):
         raise NotImplementedError(
@@ -84,21 +87,86 @@ class OpenAILLMModel(LLMModel):
             messages=[{"role": "user", "content": _prompt}],
             temperature=temperature,
         )
-        output = response.choices[0].message.content or ""
-        output = re.sub(r"<think>.*?</think>", "", output, flags=re.DOTALL).strip()
+        raw = response.choices[0].message.content or ""
+        # 记录原始调用（不含 logprob，因为 OpenAI / DeepSeek 大多不返回）
+        self.last_call = {"prompt": _prompt, "text": raw, "logprobs": None, "tokens": None}
+        return _parse_json_response(raw, return_type)
 
+
+class VLLMLocalModel(LLMModel):
+    """走本地 vLLM 服务（OpenAI 兼容协议），额外抓 token-level logprob 用于 RL 训练。
+    部署：vllm serve <qwen_model_dir> --host 127.0.0.1 --port 8001
+    config 示例：
+      provider: vllm
+      model: Qwen/Qwen2.5-7B-Instruct
+      base_url: http://127.0.0.1:8001/v1
+      api_key: EMPTY
+    """
+
+    def setup(self, config):
+        from openai import OpenAI
+
+        return OpenAI(api_key=self._api_key or "EMPTY", base_url=self._base_url)
+
+    def _completion(self, _prompt, return_type, temperature=0.5):
+        response = self._handle.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": _prompt}],
+            temperature=temperature,
+            logprobs=True,
+            top_logprobs=1,
+            extra_body=self._guided_json_extra(return_type),
+        )
+        choice = response.choices[0]
+        raw = choice.message.content or ""
+        logprobs, tokens = self._extract_logprobs(choice)
+        self.last_call = {
+            "prompt": _prompt,
+            "text": raw,
+            "logprobs": logprobs,
+            "tokens": tokens,
+        }
+        return _parse_json_response(raw, return_type)
+
+    @staticmethod
+    def _guided_json_extra(return_type):
+        """对 pydantic return_type，让 vLLM 用 guided JSON 强约束输出格式。"""
         if return_type is None:
-            return output
-
+            return None
         try:
-            parsed = json.loads(output)
+            return {"guided_json": return_type.model_json_schema()}
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_logprobs(choice):
+        """从 OpenAI 风格 choice.logprobs.content 抽 token 级 logprob 与 token 字符串。"""
+        try:
+            content = choice.logprobs.content or []
+        except AttributeError:
+            return None, None
+        logprobs = [getattr(t, "logprob", None) for t in content]
+        tokens = [getattr(t, "token", "") for t in content]
+        # 任何 None 即视为不可用
+        if any(lp is None for lp in logprobs):
+            return None, None
+        return logprobs, tokens
+
+
+def _parse_json_response(raw: str, return_type):
+    """OpenAI / vLLM 共用的 JSON 响应解析：剥 <think>，按 pydantic 模型校验。"""
+    output = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    if return_type is None:
+        return output
+    try:
+        parsed = json.loads(output)
+        return return_type.model_validate(parsed).res
+    except json.JSONDecodeError:
+        json_match = re.search(r"\{.*\}", output, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
             return return_type.model_validate(parsed).res
-        except json.JSONDecodeError:
-            json_match = re.search(r"\{.*\}", output, re.DOTALL)
-            if json_match:
-                parsed = json.loads(json_match.group())
-                return return_type.model_validate(parsed).res
-            return output
+        return output
 
 
 class OllamaLLMModel(LLMModel):
@@ -181,15 +249,12 @@ class OllamaLLMModel(LLMModel):
 
 
 def create_llm_model(llm_config):
-    """Create llm model"""
-
-    if llm_config["provider"] == "ollama":
+    """Create llm model. provider 支持：openai / ollama / vllm。"""
+    provider = llm_config.get("provider", "openai")
+    if provider == "ollama":
         return OllamaLLMModel(llm_config)
-
-    elif llm_config["provider"] == "openai":
+    if provider == "openai":
         return OpenAILLMModel(llm_config)
-    else:
-        raise NotImplementedError(
-            "llm provider {} is not supported".format(llm_config["provider"])
-        )
-    return None
+    if provider == "vllm":
+        return VLLMLocalModel(llm_config)
+    raise NotImplementedError(f"llm provider {provider} is not supported")

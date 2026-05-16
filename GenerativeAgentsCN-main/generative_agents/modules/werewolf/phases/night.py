@@ -2,23 +2,20 @@
 
 from typing import Dict, List, Optional, Tuple
 
-from modules.prompt import (
-    GUARD_TASK,
-    SEER_TASK,
-    WEREWOLF_TARGET_TASK,
-    WITCH_POISON_TASK,
-    werewolf_speech_task,
-    witch_antidote_task,
-)
-from modules.werewolf.locations import LOCATIONS, shichen
+from modules.werewolf.locations import LOCATIONS
 from modules.werewolf.llm_io import ask_choice, ask_text
 from modules.werewolf.rules import resolve_night_deaths
 from modules.werewolf.text_utils import join_names
 
 
 def night_phase(director, day: int) -> None:
-    phase = shichen(day, "子时")
-    director.add_record("public", phase, f"夜幕降临。{phase}起，江南古镇万籁俱寂，秘密行动依次发生。")
+    phase = director.phase_label(day, "night")
+    intro = (
+        f"{phase}开始：狼人 / 守卫 / 预言家 / 女巫依次秘密行动。"
+        if director.scene_mode == "game"
+        else f"夜幕降临。{phase}起，江南古镇万籁俱寂，秘密行动依次发生。"
+    )
+    director.add_record("public", phase, intro)
 
     wolf_target = werewolf_action(director, phase)
     guard_target = guard_action(director, phase)
@@ -36,21 +33,29 @@ def night_phase(director, day: int) -> None:
             killed.append(target)
             director.kill_player(target, "、".join(reasons), phase)
 
-    dawn = shichen(day + 1, "卯时")
+    dawn = director.phase_label(day + 1, "dawn") if director.scene_mode == "social" else director.phase_label(day, "dawn")
     if killed:
-        director.add_record(
-            "public",
-            dawn,
-            f"{dawn}破晓，昨夜 {join_names(killed)} 殁于镇中。身份不翻，棺木抬归乱葬岗。",
+        msg = (
+            f"{dawn}：昨夜 {join_names(killed)} 出局。身份不公开。"
+            if director.scene_mode == "game"
+            else f"{dawn}破晓，昨夜 {join_names(killed)} 殁于镇中。身份不翻，棺木抬归乱葬岗。"
         )
     else:
-        director.add_record("public", dawn, f"{dawn}破晓，昨夜镇上风平浪静，是个平安夜。")
+        msg = (
+            f"{dawn}：昨夜平安夜，无人出局。"
+            if director.scene_mode == "game"
+            else f"{dawn}破晓，昨夜镇上风平浪静，是个平安夜。"
+        )
+    director.add_record("public", dawn, msg)
 
     if seer_info:
         seer_name, target, result = seer_info
-        director.add_record(
-            "secret", phase, f"{seer_name} 在观星楼夜观天象，问卜 {target}，所得 {result}。"
+        secret_msg = (
+            f"预言家 {seer_name} 查验 {target}，结果：{result}。"
+            if director.scene_mode == "game"
+            else f"{seer_name} 在观星楼夜观天象，问卜 {target}，所得 {result}。"
         )
+        director.add_record("secret", phase, secret_msg)
 
     _spread_gossip(director, phase, day, dawn, wolf_target, guard_target, seer_info, saved_by_witch, poison_target)
     director.save_checkpoint(phase)
@@ -94,7 +99,12 @@ def werewolf_action(director, phase: str) -> Optional[str]:
     if not wolves or not candidates:
         return None
 
-    director.move_many(wolves, LOCATIONS["dyehouse"], "潜入后山染坊低声商量击杀目标", phase, "狼会")
+    move_desc = (
+        "前往狼人议事室，商量今晚击杀目标"
+        if director.scene_mode == "game"
+        else "潜入后山染坊低声商量击杀目标"
+    )
+    director.move_many(wolves, LOCATIONS["dyehouse"], move_desc, phase, "狼会")
     director.save_checkpoint(f"{phase}-狼队夜会")
 
     proposals: List[str] = []
@@ -105,25 +115,32 @@ def werewolf_action(director, phase: str) -> Optional[str]:
             director,
             wolf,
             phase,
-            WEREWOLF_TARGET_TASK,
+            director.task("werewolf_target"),
             candidates,
             fallback=fallback_target,
+        )
+        # 紧跟在 ask_choice 后 record，保留 target 的 logprob（下一次 ask_text 会覆盖 capture）
+        director.record_trajectory(
+            agent=wolf, phase=phase, decision_type="skill",
+            action=target, candidates=candidates,
+            extra_obs={"skill": "kill"},
         )
         speech = ask_text(
             director,
             wolf,
             phase,
-            werewolf_speech_task(target, join_names([w for w in wolves if w != wolf])),
-            fallback=f"我建议今晚处理{target}，这个人白天的信息价值太高。",
+            director.task("werewolf_speech", target=target, other_wolves=join_names([w for w in wolves if w != wolf])),
+            fallback=f"我建议今晚处理 {target}，他是关键票。",
             max_chars=120,
+        )
+        # speech 的 logprob 也单独记一条 trajectory
+        director.record_trajectory(
+            agent=wolf, phase=phase, decision_type="speech",
+            action=speech,
+            extra_obs={"speech_kind": "狼队夜话", "target": target},
         )
         proposals.append(target)
         chats.append((wolf, speech))
-        director.record_trajectory(
-            agent=wolf, phase=phase, decision_type="skill",
-            action=target, candidates=candidates,
-            extra_obs={"skill": "kill", "speech": speech},
-        )
 
     director.record_dialogue(
         f"{wolves[0]} -> 狼队",
@@ -149,13 +166,18 @@ def guard_action(director, phase: str) -> Optional[str]:
     candidates = director.alive_names()
     if director.guard_last_target in candidates and len(candidates) > 1:
         candidates = [name for name in candidates if name != director.guard_last_target]
-    director.move_agent(guard, LOCATIONS["watchman"], "从更夫房提灯出发，决定今晚守护谁", phase, 10, "守护")
+    guard_move = (
+        "前往值夜房，决定今晚守护对象"
+        if director.scene_mode == "game"
+        else "从更夫房提灯出发，决定今晚守护谁"
+    )
+    director.move_agent(guard, LOCATIONS["watchman"], guard_move, phase, 10, "守护")
 
     target = ask_choice(
         director,
         guard,
         phase,
-        GUARD_TASK,
+        director.task("guard"),
         candidates,
         fallback=director.heuristic_target(guard, candidates, prefer_self=True),
     )
@@ -182,12 +204,17 @@ def seer_action(director, phase: str) -> Optional[Tuple[str, str, str]]:
     if not candidates:
         return None
 
-    director.move_agent(seer, LOCATIONS["stargazer"], "登观星楼夜观天象，问卜一名玩家的阵营", phase, 10, "查验")
+    seer_move = (
+        "前往神职房，选择今晚查验对象"
+        if director.scene_mode == "game"
+        else "登观星楼夜观天象，问卜一名玩家的阵营"
+    )
+    director.move_agent(seer, LOCATIONS["stargazer"], seer_move, phase, 10, "查验")
     target = ask_choice(
         director,
         seer,
         phase,
-        SEER_TASK,
+        director.task("seer"),
         candidates,
         fallback=director.heuristic_target(seer, candidates),
     )
@@ -224,7 +251,12 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
     if not witch:
         return None, None
 
-    director.move_agent(witch, LOCATIONS["clinic"], "在同德医馆熬药，判断是否使用解药或毒药", phase, 10, "药剂")
+    witch_move = (
+        "前往制药室，判断是否使用解药或毒药"
+        if director.scene_mode == "game"
+        else "在同德医馆熬药，判断是否使用解药或毒药"
+    )
+    director.move_agent(witch, LOCATIONS["clinic"], witch_move, phase, 10, "药剂")
     saved_by_witch: Optional[str] = None
     poison_target: Optional[str] = None
     used_potion_tonight = False  # 标准规则：一夜不能同用两药
@@ -237,7 +269,7 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
                 director,
                 witch,
                 phase,
-                witch_antidote_task(wolf_target, is_self=(wolf_target == witch)),
+                director.task("witch_antidote", wolf_target=wolf_target, is_self=(wolf_target == witch)),
                 ["救", "不救"],
                 fallback="救",
             )
@@ -264,7 +296,7 @@ def witch_action(director, phase: str, wolf_target: Optional[str]) -> Tuple[Opti
             director,
             witch,
             phase,
-            WITCH_POISON_TASK,
+            director.task("witch_poison"),
             candidates,
             fallback="不毒",
         )
@@ -292,5 +324,10 @@ def hunter_wait_action(director, phase: str) -> None:
     hunter = director.role_holder("hunter", alive_only=True)
     if not hunter:
         return
-    director.move_agent(hunter, LOCATIONS["inn"], "在归云客栈厢房擦拭家伙，等待临死反扑之机", phase, 10, "猎枪")
-    director.private_log[hunter].append(f"{phase}：你仍然保留临死反扑的技能。")
+    hunter_move = (
+        "在客栈待命，保留临死开枪技能"
+        if director.scene_mode == "game"
+        else "在归云客栈厢房擦拭家伙，等待临死反扑之机"
+    )
+    director.move_agent(hunter, LOCATIONS["inn"], hunter_move, phase, 10, "猎枪")
+    director.private_log[hunter].append(f"{phase}：你仍然保留临死开枪技能。")

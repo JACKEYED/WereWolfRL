@@ -7,6 +7,7 @@ export interface GameSummary {
   day: number;
   winner: string | null;
   finished: boolean;
+  scene_mode: "social" | "game";
 }
 
 export interface PlayerState {

@@ -18,7 +18,9 @@ LOCATIONS: Dict[str, List[str]] = {
     "graveyard": ["the Ville", "镇中广场", "广场前"],
 }
 
-# Prompt 与日志中向 Agent / 玩家展示的地点名（江南叙事层）。
+# Prompt 与日志中向 Agent / 玩家展示的地点名。
+# - SOCIAL（默认）：江南叙事层，氛围感
+# - GAME（v1 训练模式）：功能性中性名，去掉古风包袱
 LOCATION_DISPLAY: Dict[str, str] = {
     "square": "镇中广场",
     "teahouse": "听雨茶馆",
@@ -29,6 +31,18 @@ LOCATION_DISPLAY: Dict[str, str] = {
     "nightmarket": "码头夜市",
     "inn": "归云客栈",
     "graveyard": "镇外乱葬岗",
+}
+
+LOCATION_DISPLAY_GAME: Dict[str, str] = {
+    "square": "广场",
+    "teahouse": "茶馆",
+    "clinic": "制药室",       # 女巫专属
+    "stargazer": "神职房",    # 预言家专属
+    "watchman": "值夜房",     # 守卫专属
+    "dyehouse": "狼人议事室", # 狼人会面
+    "nightmarket": "市场",
+    "inn": "客栈",
+    "graveyard": "墓地",
 }
 
 # 神职夜晚强制移动的专属地点 key。
@@ -50,10 +64,13 @@ def shichen(day: int, slot: str) -> str:
     return f"第{day}日{slot}"
 
 
-def location_display_from_address(address):
-    """根据 maze 地址反查显示名；未匹配时回退到原地址末段。"""
+def location_display_from_address(address, mode: str = "social"):
+    """根据 maze 地址反查显示名；未匹配时回退到原地址末段。
+    mode='game' 用功能性中性名，mode='social'（默认）用江南名。
+    """
+    table = LOCATION_DISPLAY_GAME if mode == "game" else LOCATION_DISPLAY
     addr = list(address)
     for key, bound in LOCATIONS.items():
         if addr == bound:
-            return LOCATION_DISPLAY[key]
+            return table[key]
     return "，".join(address[1:]) if len(address) > 1 else address[0]

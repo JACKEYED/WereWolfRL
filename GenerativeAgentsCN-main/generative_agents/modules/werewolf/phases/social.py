@@ -2,7 +2,6 @@
 
 from typing import List, Sequence, Tuple
 
-from modules.prompt import social_chat_task
 from modules.werewolf.locations import SOCIAL_SPOTS
 from modules.werewolf.llm_io import ask_text
 from modules.werewolf.text_utils import join_names
@@ -33,7 +32,7 @@ def free_social_window(director, label: str, rounds: int = 2) -> None:
                     director,
                     name,
                     label,
-                    social_chat_task(location, join_names(others)),
+                    director.task("social_chat", location=location, others=join_names(others)),
                     fallback=_fallback_social_line(others),
                     max_chars=130,
                 )

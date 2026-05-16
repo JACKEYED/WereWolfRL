@@ -31,6 +31,8 @@ export async function createGame(opts: {
   name?: string;
   seed?: number;
   use_llm?: boolean;
+  write_memory?: boolean;
+  scene_mode?: "social" | "game";
 }): Promise<GameSummary> {
   return jsonRequest("/api/games", {
     method: "POST",

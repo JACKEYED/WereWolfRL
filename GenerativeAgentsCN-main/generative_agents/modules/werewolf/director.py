@@ -15,7 +15,8 @@ import random
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from modules import memory, utils
-from modules.game import create_game, get_game
+from modules.game import GameRegistry, create_game
+from modules.utils import ActiveGameContext
 
 from modules.werewolf.locations import (
     LOCATIONS,
@@ -120,8 +121,17 @@ class WerewolfDirector:
         use_llm: bool = True,
         write_memory: bool = True,
         debate_turns: int = 4,
+        scene_mode: str = "social",
         logger=None,
     ):
+        """scene_mode:
+          - "social"（默认）：完整江南叙事，含开场社交/辩论/申时余韵/NPC 流言
+          - "game"：v1 纯狼人杀，跳开场社交、跳申时余韵、辩论压缩到 2 轮、禁用流言、prompt 用中性文案
+        """
+        if scene_mode not in ("social", "game"):
+            raise ValueError(f"scene_mode 必须是 'social' 或 'game'，收到：{scene_mode}")
+        self.scene_mode = scene_mode
+
         self.name = name
         self.static_root = static_root
         self.checkpoints_folder = checkpoints_folder
@@ -130,7 +140,8 @@ class WerewolfDirector:
         self.role_map = role_map
         self.use_llm = use_llm
         self.write_memory = write_memory
-        self.debate_turns = debate_turns
+        # game 模式辩论缩到 2 轮（除非外部显式指定）
+        self.debate_turns = 2 if scene_mode == "game" and debate_turns == 4 else debate_turns
         self.logger = logger or utils.create_io_logger("info")
 
         os.makedirs(checkpoints_folder, exist_ok=True)
@@ -141,8 +152,8 @@ class WerewolfDirector:
         else:
             conversation = {}
 
-        create_game(name, static_root, config, conversation, logger=self.logger)
-        self.game = get_game()
+        # 按 name 创建并注册到 GameRegistry；返回的 game 直接绑定到本 director，不再依赖全局 singleton。
+        self.game = create_game(name, static_root, config, conversation, logger=self.logger)
         self.game.reset_game()
 
         self.players_order: List[str] = list(config["agents"].keys())
@@ -157,42 +168,86 @@ class WerewolfDirector:
         self.day = 0
         self.step = int(config.get("step", 0))
         self.winner: Optional[str] = None
+        # NPC 流言：game 模式禁用（RL 训练不需要叙事噪声）
         self.gossip_mill = None
-        try:
-            from modules.gossip import GossipMill
+        if scene_mode == "social":
+            try:
+                from modules.gossip import GossipMill
 
-            self.gossip_mill = GossipMill(self.random)
-        except Exception as exc:
-            self.logger.warning(f"流言模块未加载：{exc}")
+                self.gossip_mill = GossipMill(self.random)
+            except Exception as exc:
+                self.logger.warning(f"流言模块未加载：{exc}")
 
         # RL 训练基础设施（路 3）
         self.belief_states: Dict[str, BeliefState] = {}
         self.trajectories = TrajectoryRecorder()
         # 阶段末扫描事件用的游标：每个 Agent 上次 belief 更新时 phase_records 已处理到的索引
         self._phase_record_cursor_per_agent: Dict[str, int] = {}
+        # 每次 ask_text/ask_choice 后，model 把 prompt/text/logprobs 暂存到这里
+        # 紧跟着的 record_trajectory() 自动消费并清空（防止下一次 ask 覆盖）
+        self._last_capture: Optional[Dict] = None
+
+    # =========================================================================
+    # Scene 适配 helper（被 phases/* 调用）
+    # =========================================================================
+    def phase_label(self, day: int, slot: str) -> str:
+        """根据当前 scene_mode 返回该阶段的展示名。
+        slot ∈ {night, dawn, day_council, evening_pre, evening_post}。
+        """
+        from modules.prompt.dispatcher import phase_label as _phase_label
+        return _phase_label(self.scene_mode, day, slot)
+
+    def task(self, key: str, **kwargs) -> str:
+        """根据当前 scene_mode 返回任意阶段的任务文案。"""
+        from modules.prompt.dispatcher import get_task
+        return get_task(self.scene_mode, key, **kwargs)
 
     # =========================================================================
     # 主循环
     # =========================================================================
     def run(self) -> dict:
+        # 多线程并行时，确保本线程的活跃 game 是自己；老的 utils.get_timer() 等调用会自动落到 self.game.timer
+        with ActiveGameContext.bind(self.game):
+            return self._run_inner()
+
+    def dispose(self) -> None:
+        """跑完一局后释放：从 GameRegistry 删 + 清线程活跃位。
+        并行 GRPO 采集时建议每局结束调用，避免内存累积。
+        """
+        try:
+            GameRegistry.remove(self.name)
+        except Exception:
+            pass
+        if ActiveGameContext.get() is self.game:
+            ActiveGameContext.clear()
+
+    def _run_inner(self) -> dict:
         self.setup()
-        self.free_social_window("开场申时（黄昏踩点）", rounds=3)
-        self.end_of_phase("开场申时（黄昏踩点）")
+
+        if self.scene_mode == "social":
+            label = self.phase_label(0, "evening_pre")
+            self.free_social_window(label, rounds=3)
+            self.end_of_phase(label)
 
         for day in range(1, SAFETY_DAY_LIMIT + 1):
             self.day = day
+
+            night_label = self.phase_label(day, "night")
             self.night_phase(day)
-            self.end_of_phase(shichen(day, "子时"))
-            if self.check_win("子时结算"):
+            self.end_of_phase(night_label)
+            if self.check_win("夜晚结算"):
                 break
 
+            day_label = self.phase_label(day, "day_council")
             self.day_phase(day)
-            self.end_of_phase(shichen(day, "辰时议会"))
-            if self.check_win("辰时议会"):
+            self.end_of_phase(day_label)
+            if self.check_win("白天议会"):
                 break
 
-            self.free_social_window(shichen(day, "申时余韵"), rounds=2)
-            self.end_of_phase(shichen(day, "申时余韵"))
+            if self.scene_mode == "social":
+                evening_label = self.phase_label(day, "evening_post")
+                self.free_social_window(evening_label, rounds=2)
+                self.end_of_phase(evening_label)
 
         if not self.winner:
             self.add_record(
@@ -245,11 +300,13 @@ class WerewolfDirector:
         }
         self._phase_record_cursor_per_agent = {name: 0 for name in self.players_order}
 
-        self.add_record(
-            "public",
-            "开局",
-            "江南古镇风云骤起。12 名镇民暗中收到身份牌，白日议政广场，黑夜各归其所，狼影潜行。",
+        opening_record = (
+            "12 名玩家已收到身份牌。4 狼人 + 预言家 + 女巫 + 猎人 + 守卫 + 4 村民，"
+            "白天议会发言投票，夜晚各方秘密行动，开始博弈。"
+            if self.scene_mode == "game"
+            else "江南古镇风云骤起。12 名镇民暗中收到身份牌，白日议政广场，黑夜各归其所，狼影潜行。"
         )
+        self.add_record("public", "开局", opening_record)
         self.save_checkpoint("开局")
 
     def assign_roles(self) -> None:
@@ -301,15 +358,26 @@ class WerewolfDirector:
         player.alive = False
         player.death_reason = reason
         player.death_day = self.day
-        self.move_agent(name, LOCATIONS["graveyard"], "棺木抬出镇外，于乱葬岗等待最终复盘", phase, 999, "出局")
-        self.add_record("public", phase, f"{name} 已殁，死因：{reason}。身份暂不公开。")
-        self.safe_broadcast(f"{name} 已殁，死因：{reason}。身份暂不公开。", phase)
+        if self.scene_mode == "game":
+            move_desc = "被移出场，进入旁观区"
+            death_announce = f"{name} 出局，原因：{reason}。身份暂不公开。"
+        else:
+            move_desc = "棺木抬出镇外，于乱葬岗等待最终复盘"
+            death_announce = f"{name} 已殁，死因：{reason}。身份暂不公开。"
+        self.move_agent(name, LOCATIONS["graveyard"], move_desc, phase, 999, "出局")
+        self.add_record("public", phase, death_announce)
+        self.safe_broadcast(death_announce, phase)
 
         if player.role == "hunter" and not player.used_hunter_shot:
             # 标准规则：被女巫毒药毒杀的猎人无法触发临死反扑
             if "女巫毒药" in reason:
                 player.used_hunter_shot = True
-                self.add_record("public", phase, f"{name} 七窍流毒，临死反扑之力尽失。")
+                msg = (
+                    f"{name} 被毒杀，猎人技能无效。"
+                    if self.scene_mode == "game"
+                    else f"{name} 七窍流毒，临死反扑之力尽失。"
+                )
+                self.add_record("public", phase, msg)
             else:
                 self.hunter_shot(name, phase)
 
@@ -323,16 +391,26 @@ class WerewolfDirector:
         target = self.ask_choice(
             hunter,
             phase,
-            HUNTER_SHOT_TASK,
+            self.task("hunter_shot"),
             ["不开枪"] + candidates,
             fallback=self.heuristic_target(hunter, candidates),
         )
         if target == "不开枪":
-            self.add_record("public", phase, f"猎人 {hunter} 临死前放下了手。")
+            msg = (
+                f"猎人 {hunter} 放弃开枪。"
+                if self.scene_mode == "game"
+                else f"猎人 {hunter} 临死前放下了手。"
+            )
+            self.add_record("public", phase, msg)
             return
 
-        self.add_record("public", phase, f"猎人 {hunter} 临死反扑，带走 {target}。")
-        self.kill_player(target, f"猎人 {hunter} 临死反扑", phase)
+        msg = (
+            f"猎人 {hunter} 开枪带走 {target}。"
+            if self.scene_mode == "game"
+            else f"猎人 {hunter} 临死反扑，带走 {target}。"
+        )
+        self.add_record("public", phase, msg)
+        self.kill_player(target, f"猎人 {hunter} 开枪", phase)
 
     # =========================================================================
     # 状态查询
@@ -380,7 +458,7 @@ class WerewolfDirector:
         return _join_names(names)
 
     def location_name(self, address: Sequence[str]) -> str:
-        return location_display_from_address(address)
+        return location_display_from_address(address, mode=self.scene_mode)
 
     def clean_text(self, value: str, max_chars: int) -> str:
         return _clean_text(value, max_chars)
@@ -545,6 +623,17 @@ class WerewolfDirector:
         }
         self.trajectories.fill_episode_reward(ep_rewards)
 
+    def capture_last(self, agent_name: str) -> None:
+        """ask_text / ask_choice 调用结束后立即调用，把模型的 last_call 暂存到本 director。
+        紧跟着的 record_trajectory() 会消费这份数据并清空。
+        若 model 没产出 logprob（OpenAI API 等），仍能拿到 prompt 和 text。
+        """
+        try:
+            agent = self.game.get_agent(agent_name)
+            self._last_capture = getattr(agent._llm, "last_call", None)
+        except Exception:
+            self._last_capture = None
+
     def record_trajectory(
         self,
         agent: str,
@@ -554,7 +643,9 @@ class WerewolfDirector:
         candidates: Optional[List[str]] = None,
         extra_obs: Optional[Dict] = None,
     ) -> None:
-        """phase 模块统一通过此入口写 trajectory。"""
+        """phase 模块统一通过此入口写 trajectory。
+        如果有暂存的 _last_capture（紧跟在 ask_* 后），自动把 prompt / logprobs / tokens 填进 step。
+        """
         obs = {
             "my_role": self.players[agent].role if agent in self.players else "",
             "my_belief": snapshot_belief(self.belief_states.get(agent)),
@@ -565,7 +656,7 @@ class WerewolfDirector:
         }
         if extra_obs:
             obs.update(extra_obs)
-        self.trajectories.record(
+        step = self.trajectories.record(
             agent=agent,
             phase=phase,
             day=self.day,
@@ -574,3 +665,9 @@ class WerewolfDirector:
             action=action,
             candidates=candidates,
         )
+        # 消费 capture buffer
+        if self._last_capture:
+            step.prompt = self._last_capture.get("prompt")
+            step.logprobs = self._last_capture.get("logprobs")
+            step.tokens = self._last_capture.get("tokens")
+            self._last_capture = None

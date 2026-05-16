@@ -25,6 +25,11 @@ class TrajectoryStep:
     action: Any = None  # 文本 / 选择项 / 结构化字段
     reward_step: float = 0.0  # 阶段末填
     reward_episode: float = 0.0  # 局末填
+    # RL 训练必需：rollout 时 actor 模型给出的 token-level logprob
+    # 只对本 director 训练的座位（Qwen seat）填；其他 API 座位 = None
+    prompt: Optional[str] = None
+    logprobs: Optional[List[float]] = None  # len == len(tokens)
+    tokens: Optional[List[str]] = None       # token 字符串
 
     def to_dict(self) -> dict:
         return asdict(self)

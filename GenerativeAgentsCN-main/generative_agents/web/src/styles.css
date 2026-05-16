@@ -341,6 +341,35 @@ body {
   font-size: 0.85em;
 }
 
+.field-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6em;
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+.radio-option:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+.radio-option input {
+  margin-top: 0.2em;
+}
+.radio-option small {
+  color: var(--muted);
+  font-size: 0.82em;
+  display: block;
+  margin-top: 0.15em;
+}
+
 .form-error {
   padding: 0.5em 0.7em;
   background: rgba(160, 64, 64, 0.08);

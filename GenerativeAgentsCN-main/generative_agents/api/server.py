@@ -63,6 +63,7 @@ class NewGameRequest(BaseModel):
     players: Optional[List[str]] = None
     use_llm: bool = True
     write_memory: bool = False  # API 默认关向量记忆，避免一局十几次 embedding
+    scene_mode: str = "social"   # social = 江南叙事完整版；game = v1 纯狼人杀 RL 训练版
 
 
 class GameSummary(BaseModel):
@@ -72,6 +73,7 @@ class GameSummary(BaseModel):
     day: int
     winner: Optional[str]
     finished: bool
+    scene_mode: str = "social"
 
 
 # ==================== 工具 ====================
@@ -84,6 +86,7 @@ def _summarize(sess) -> GameSummary:
         day=getattr(d, "day", 0),
         winner=getattr(d, "winner", None),
         finished=sess.finished,
+        scene_mode=getattr(d, "scene_mode", "social"),
     )
 
 
@@ -131,6 +134,7 @@ def create_game(req: NewGameRequest):
         seed=req.seed,
         use_llm=req.use_llm,
         write_memory=req.write_memory,
+        scene_mode=req.scene_mode,
     )
     t_init = time.perf_counter()
     print(
@@ -169,27 +173,47 @@ class StepRequest(BaseModel):
 
 @app.post("/api/games/{game_id}/step", response_model=GameSummary)
 def step(game_id: str, req: StepRequest):
-    """推进一个阶段。'social-pre' 是开场黄昏，'social-post' 是当日黄昏余韵。"""
+    """推进一个阶段。
+    - social-pre / social-post：仅 scene_mode='social' 模式可用（game 模式跳过这两阶段）
+    - night / day：两个模式都可用，phase label 按 mode 自适应
+    """
     sess = _require(game_id)
     director = sess.director
+    mode = getattr(director, "scene_mode", "social")
 
     if req.phase == "social-pre":
-        director.free_social_window("开场申时（黄昏踩点）", rounds=3)
+        if mode == "game":
+            raise HTTPException(
+                status_code=400,
+                detail="game 模式跳过开场社交，请直接调用 night",
+            )
+        label = director.phase_label(0, "evening_pre")
+        director.free_social_window(label, rounds=3)
+        director.end_of_phase(label)
     elif req.phase == "night":
         director.day += 1
+        label = director.phase_label(director.day, "night")
         director.night_phase(director.day)
-        director.check_win("子时结算")
+        director.end_of_phase(label)
+        director.check_win("子时结算" if mode == "social" else "夜晚结算")
         if director.winner:
             sess.finished = True
     elif req.phase == "day":
+        label = director.phase_label(director.day, "day_council")
         director.day_phase(director.day)
-        director.check_win("辰时议会")
+        director.end_of_phase(label)
+        director.check_win("辰时议会" if mode == "social" else "白天议会")
         if director.winner:
             sess.finished = True
     elif req.phase == "social-post":
-        from modules.werewolf.locations import shichen
-
-        director.free_social_window(shichen(director.day, "申时余韵"), rounds=2)
+        if mode == "game":
+            raise HTTPException(
+                status_code=400,
+                detail="game 模式跳过申时余韵，请直接调用下一轮 night",
+            )
+        label = director.phase_label(director.day, "evening_post")
+        director.free_social_window(label, rounds=2)
+        director.end_of_phase(label)
     else:
         raise HTTPException(status_code=400, detail=f"未知 phase: {req.phase}")
 
