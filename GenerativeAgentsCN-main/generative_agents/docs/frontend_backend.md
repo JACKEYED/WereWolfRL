@@ -110,33 +110,75 @@ npm run dev
 { "type": "record", "scope": "public", "phase": "第1日子时", "text": "...", "actors": [...], "location": "...", "day": 1 }
 ```
 
-## RL 训练（v1）
+## RL 训练（v1，verl backend）
 
-完整 GRPO 训练管线已就位（[modules/rl/](../modules/rl/)）：
+完整 GRPO 训练管线（[modules/rl/](../modules/rl/) + [configs/verl_grpo.yaml](../configs/verl_grpo.yaml)）：
 
 ```
 modules/rl/
-├── config.py     # RLConfig 超参数 dataclass
-├── buffer.py     # GroupRecord + ReplayBuffer + reward 累计 helper
-├── loss.py       # GRPO loss（torch 版 + 纯 Python 镜像版）
-├── collector.py  # 并行起 N 局，按 role × seat 凑 group
-└── trainer.py    # GRPOTrainer 包 trl + dry-run 模式
+├── config.py          # RLConfig 超参数 dataclass
+├── buffer.py          # GroupRecord + ReplayBuffer + reward 累计 helper
+├── loss.py            # GRPO loss 数学公式（pytest 验证用）
+├── collector.py       # 并行起 N 局，按 role × seat 凑 group
+├── verl_dataset.py    # ReplayBuffer → parquet（verl 喂的格式）
+├── verl_trainer.py    # 包 verl 入口 + hot_swap_lora_to_vllm
+└── trainer.py         # ⚠ DEPRECATED 旧 trl 实现，仅作 dry-run 参考
+
+configs/
+└── verl_grpo.yaml     # verl GRPO 训练模板（actor / ref / LoRA / kl）
+
+rl_train.py             # 主循环：collect → parquet → verl train → hot-swap LoRA
 ```
 
-入口：
+### 闭环架构
+
+```
+Phase A：rollout（自家代码）
+  RLCollector.collect_cycle()
+  ├─ 起 group_size × groups_per_role × |roles| 局并行（线程池）
+  ├─ Qwen 座位用 VLLMLocalModel 拿 token logprob
+  ├─ 其他 11 座调 DeepSeek / 任意 OpenAI 兼容 API
+  └─ trajectories + group advantage 落盘 ReplayBuffer
+
+Phase B：转 verl 格式
+  buffer_to_parquet()
+  ├─ 只留 Qwen 座位的 step（有 logprobs）
+  ├─ 过滤 zero-advantage（同 group 全平 = 无学习信号）
+  └─ → results/rl/parquets/cycle_NNN.parquet
+
+Phase C：verl 训练
+  VerlGRPOAdapter.train_one_cycle()
+  ├─ 读 configs/verl_grpo.yaml 模板 + 覆盖 cycle-specific 字段
+  ├─ subprocess 调 `python -m verl.trainer.main_ppo`
+  ├─ verl 用 FSDP + LoRA 更新 Qwen
+  └─ → results/rl/verl_ckpt/cycle_NNN/actor/  (新 LoRA)
+
+Phase D：vLLM hot-swap
+  hot_swap_lora_to_vllm()
+  └─ POST /v1/load_lora_adapter 到 :8001/v1，下一 cycle rollout 用新权重
+```
+
+### 入口
 
 ```bash
-# dry-run（无 GPU 验证管线，仅走 collect → pack → metric）
+# dry-run（无 GPU、不真训，只走 collect → parquet → 验证管线）
 python rl_train.py --dry --cycles 1 --groups-per-role 1 --group-size 2
 
-# 真训（先在 :8001 host 一个 vLLM serving Qwen-7B）
-vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 &
+# 真训：
+# 1) 起 vLLM（必须带 LoRA hot-swap）
+vllm serve Qwen/Qwen2.5-7B-Instruct \
+    --port 8001 --enable-lora --enable-lora-hot-swap --max-lora-rank 64 &
+
+# 2) 装 verl 等
 pip install -r requirements-rl.txt
-python rl_train.py --cycles 30 --groups-per-role 20 --group-size 8
+
+# 3) 开训
+python rl_train.py --cycles 30 --groups-per-role 20 --group-size 8 \
+    --wandb-project jiangnan-werewolf-grpo
 ```
 
-每 cycle：6 身份 × 20 group × 8 局 = 960 局，wall time 约 60 min（8 并发）+ 30 min GRPO 更新。
-LoRA 权重落到 `results/rl/cycle_{n:03d}/`。
+每 cycle 约 960 局，wall time ≈ 60 min 采集（8 并发）+ 20-30 min verl 训练。30 cycle ≈ 40-50 小时。
+LoRA 权重落到 `results/rl/verl_ckpt/cycle_NNN/actor/`。
 
 ## 已知限制 & 后续工作
 

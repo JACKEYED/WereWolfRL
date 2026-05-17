@@ -27,8 +27,89 @@ body {
 
 .app {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   height: 100vh;
+}
+
+/* Tab 栏（多对局） */
+.tab-bar {
+  display: flex;
+  gap: 0.2em;
+  padding: 0.3em 0.6em 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.35em 0.7em;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  font-size: 0.82em;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  top: 1px;
+  color: var(--muted);
+  transition: background 0.1s;
+}
+
+.tab:hover {
+  background: rgba(0,0,0,0.04);
+}
+
+.tab.active {
+  background: var(--panel);
+  color: var(--ink);
+  border-color: var(--accent);
+  border-bottom: 1px solid var(--panel);
+  font-weight: 600;
+}
+
+.tab-mode {
+  display: inline-block;
+  width: 1.4em;
+  height: 1.4em;
+  line-height: 1.4em;
+  text-align: center;
+  background: var(--accent);
+  color: white;
+  border-radius: 2px;
+  font-size: 0.75em;
+  font-weight: 600;
+}
+
+.tab-name {
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-status {
+  font-size: 0.85em;
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.tab-close {
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.1em;
+  line-height: 1;
+  padding: 0 0.2em;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.tab-close:hover {
+  background: var(--wolf);
+  color: white;
 }
 
 .header {
@@ -63,6 +144,27 @@ body {
 }
 .header button:hover { background: var(--accent-dark); }
 .header button:disabled { background: #aaa; cursor: not-allowed; }
+.header button.danger { background: var(--wolf); }
+.header button.danger:hover { background: #7a2f2f; }
+.header button.danger:disabled { background: #aaa; }
+
+.header button.primary { background: var(--good); }
+.header button.primary:hover { background: #356535; }
+.header button.primary:disabled { background: #aaa; }
+
+.debug-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  font-size: 0.85em;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.4em;
+  user-select: none;
+}
+.debug-toggle input {
+  margin: 0;
+}
 
 .main {
   display: grid;

@@ -449,6 +449,12 @@ GET /api/games/{id}/agent/{name}        # 该 Agent 的 belief + 最近 30 步 t
 GET /api/games/{id}/trajectories        # 完整轨迹 JSON（RL 流水线用）
 ```
 
+### GRPO 训练（verl backend）
+
+`rl_train.py` 跑闭环：**collect → parquet → verl train → hot-swap LoRA → 回到 collect**。
+依赖见 `requirements-rl.txt`（verl + ray + vllm + torch + pandas）。
+详见 [generative_agents/docs/frontend_backend.md](generative_agents/docs/frontend_backend.md) 的 RL 训练章节。
+
 ### 前端展示
 
 AgentPanel 现在多两栏：

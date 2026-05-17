@@ -52,8 +52,10 @@ async def _on_startup():
     registry.set_event_loop(asyncio.get_running_loop())
 
 
-# 阻塞型 director.run() 用线程池跑，免得拽住 asyncio loop
-_executor = ThreadPoolExecutor(max_workers=2)
+# 阻塞型 director.run() 用线程池跑，免得拽住 asyncio loop。
+# 给 8（与 GRPO 采集 group_size 一致），同时支持 web 控制台多 tab 自动跑完。
+# 注意：超过 8 个 auto-run 时新请求会排队，但 step 等 sync endpoint 走 anyio 自己的 threadpool 不受影响。
+_executor = ThreadPoolExecutor(max_workers=8)
 
 
 # ==================== 请求/响应模型 ====================
@@ -124,7 +126,7 @@ def create_game(req: NewGameRequest):
     if not req.write_memory:
         config["agent_base"]["associate"] = {"disabled": True}
     t_config = time.perf_counter()
-    print(f"[create_game] {name}: 配置就绪 {(t_config - t_start) * 1000:.0f}ms")
+    print(f"[create_game] {name}: 配置就绪 {(t_config - t_start) * 1000:.0f}ms", flush=True)
 
     director = WerewolfDirector(
         name,
@@ -139,12 +141,14 @@ def create_game(req: NewGameRequest):
     t_init = time.perf_counter()
     print(
         f"[create_game] {name}: WerewolfDirector 初始化完毕 "
-        f"{(t_init - t_config) * 1000:.0f}ms (含 maze + 12 agents + reset_game)"
+        f"{(t_init - t_config) * 1000:.0f}ms (含 maze + 12 agents + reset_game)",
+        flush=True,
     )
 
     sess = registry.create(name, director)
     print(
-        f"[create_game] {name}: 总耗时 {(time.perf_counter() - t_start) * 1000:.0f}ms"
+        f"[create_game] {name}: 总耗时 {(time.perf_counter() - t_start) * 1000:.0f}ms",
+        flush=True,
     )
     return _summarize(sess)
 
@@ -162,8 +166,11 @@ def get_state(game_id: str):
 
 @app.post("/api/games/{game_id}/setup", response_model=GameSummary)
 def setup(game_id: str):
+    import time
     sess = _require(game_id)
+    t = time.perf_counter()
     sess.director.setup()
+    print(f"[setup] {game_id}: 总耗时 {(time.perf_counter() - t) * 1000:.0f}ms", flush=True)
     return _summarize(sess)
 
 

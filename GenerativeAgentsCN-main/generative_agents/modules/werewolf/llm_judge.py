@@ -57,10 +57,18 @@ def update_belief_via_llm(
             temperature=0.3,
         )
     except Exception as exc:
-        director.add_record("system", phase_label, f"{witness_name} belief 更新失败：{exc}")
+        director.add_record(
+            "system", phase_label,
+            f"⚠ belief 更新失败（异常）：{witness_name} → {exc}。本阶段沿用旧 belief。",
+        )
         return prior
 
     if not raw:
+        # LLM 重试到底仍未给出可解析输出
+        director.add_record(
+            "system", phase_label,
+            f"⚠ belief 更新失败（无可用输出）：{witness_name}。本阶段沿用旧 belief。",
+        )
         return prior
 
     # 归一化 + 合并锁定项

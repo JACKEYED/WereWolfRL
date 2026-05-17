@@ -1,0 +1,81 @@
+# 文件作用：verl GRPO 训练模板配置。
+# 每 cycle 会被 modules/rl/verl_trainer.py 读取后用 cycle-specific 字段覆写，
+# 落到 results/rl/verl_runs/cycle_NNN.yaml，然后传给 `python -m verl.trainer.main_ppo`。
+#
+# 关键假设（按"默认"配置）：
+#   - 1 张 A100 80G
+#   - Qwen2.5-7B-Instruct + LoRA rank=64
+#   - 不走 verl 自带的 rollout（我们已经 offline 采集好了），advantage 直接从 parquet 读
+#   - vLLM 在 :8001 serve 着，--enable-lora --enable-lora-hot-swap
+#
+# 字段命名按 verl v0.3.x 约定；不同版本可能要微调。
+
+algorithm: grpo
+
+data:
+  # train_files 会被 cycle 配置覆盖
+  train_files: []
+  val_files: []
+  # 我们 parquet 里已经算好 advantage，verl 应当跳过自带 GAE
+  use_offline_advantage: true
+  train_batch_size: 16
+  micro_batch_size_per_gpu: 2
+  max_prompt_length: 4096
+  max_response_length: 512
+  shuffle: true
+  prompt_key: prompt
+  response_key: response
+  # 关键字段，告诉 verl 直接用我们提供的 logprobs
+  old_logprobs_key: old_logprobs
+  advantage_key: advantage
+
+actor_rollout_ref:
+  hybrid_engine: true
+  model:
+    path: Qwen/Qwen2.5-7B-Instruct
+    trust_remote_code: true
+  actor:
+    strategy: fsdp
+    optim:
+      lr: 5.0e-6
+      weight_decay: 0.0
+      warmup_steps: 0
+    use_lora: true
+    lora_rank: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+    ppo_mini_batch_size: 16
+    ppo_micro_batch_size_per_gpu: 2
+    grad_clip: 1.0
+    fsdp_config:
+      param_offload: false
+      optimizer_offload: false
+      fsdp_size: -1  # auto
+  ref:
+    fsdp_config:
+      param_offload: true  # ref 不训，offload 省显存
+  # rollout 模式：因为我们是 offline rollout（采集 / 训练分离），
+  # 把 rollout.name 设为 'null' 或 verl 等价的"跳过 rollout"标记。
+  # 不同 verl 版本字段名可能差异，需在第一次跑时按 verl 报错调整。
+  rollout:
+    name: null  # 关键：占位；如 verl 报错请改为 'dummy' / 'offline' / 删掉本段
+
+grpo:
+  kl_coef: 0.04
+  clip_ratio: 0.2
+  entropy_coef: 0.0
+  advantage_normalize: false  # parquet 里已经归一过；verl 别再归一
+
+trainer:
+  total_epochs: 4
+  total_training_steps: -1
+  logger: [console]
+  project_name: jiangnan-werewolf-grpo
+  experiment_name: grpo-default
+  default_local_dir: results/rl/verl_ckpt/default
+  save_freq: 1
+  test_freq: -1  # 我们不在 verl 内做 eval，外部跑评估对局
+  resume_mode: auto
+  n_gpus_per_node: 1
+  nnodes: 1

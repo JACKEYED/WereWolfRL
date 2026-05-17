@@ -154,18 +154,23 @@ class VLLMLocalModel(LLMModel):
 
 
 def _parse_json_response(raw: str, return_type):
-    """OpenAI / vLLM 共用的 JSON 响应解析：剥 <think>，按 pydantic 模型校验。"""
+    """OpenAI / vLLM 共用的 JSON 响应解析：剥 <think>，按 pydantic 模型校验。
+    若 pydantic 模型有 `.res` 字段（TextResponse/ChoiceResponse 约定）则取 .res；
+    否则返回整个模型实例（供 JudgeResponse 等多字段模型用，由 callback 自取字段）。
+    """
     output = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
     if return_type is None:
         return output
     try:
         parsed = json.loads(output)
-        return return_type.model_validate(parsed).res
+        obj = return_type.model_validate(parsed)
+        return obj.res if hasattr(obj, "res") else obj
     except json.JSONDecodeError:
         json_match = re.search(r"\{.*\}", output, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group())
-            return return_type.model_validate(parsed).res
+            obj = return_type.model_validate(parsed)
+            return obj.res if hasattr(obj, "res") else obj
         return output
 
 

@@ -1,16 +1,23 @@
-# 文件作用：RL 训练 CLI 入口。
-# 用法：
-#   # 1. 先 host 一个 vLLM（actor）：
-#   vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001
+# 文件作用：RL 训练主入口。每 cycle 闭环：
+#   1. RLCollector 并行起 N 局，收 trajectory（Phase A）
+#   2. ReplayBuffer → parquet（Phase B）
+#   3. VerlGRPOAdapter 调 verl 跑 GRPO 训练，输出新 LoRA（Phase C）
+#   4. hot_swap_lora_to_vllm 把新 LoRA 推到 vLLM serving 端（Phase D）
+#   5. 进入下一 cycle，新一轮 rollout 用更新后的 Qwen
 #
-#   # 2. 跑 dry-run（无需 GPU、不真训，仅走通 collect→pack→metric 链路；适合本地调通）
+# 用法：
+#   # 1. 启 vLLM（带 LoRA hot-swap）：
+#   vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 \
+#       --enable-lora --enable-lora-hot-swap --max-lora-rank 64
+#
+#   # 2. dry-run（无 GPU、不真训，只走 collect → parquet → verl_dry）
 #   python rl_train.py --dry --cycles 1 --groups-per-role 1 --group-size 2
 #
-#   # 3. 真训（需 torch + transformers + peft + trl + 实际 vLLM endpoint）
+#   # 3. 真训
+#   pip install -r requirements-rl.txt
 #   python rl_train.py --cycles 30 --groups-per-role 20 --group-size 8
 
 import argparse
-import json
 import os
 import sys
 from datetime import datetime
@@ -18,7 +25,6 @@ from datetime import datetime
 try:
     from dotenv import find_dotenv, load_dotenv
 except ImportError:
-    # dotenv 可选；缺失时跳过 .env 加载
     def find_dotenv(): return ""
     def load_dotenv(*a, **k): return False
 
@@ -27,8 +33,9 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     load_dotenv(find_dotenv())
 
-    parser = argparse.ArgumentParser(description="GRPO 训练入口（v1 纯狼人杀）")
-    parser.add_argument("--dry", action="store_true", help="dry-run：跑数据流但不更新模型")
+    parser = argparse.ArgumentParser(description="GRPO 训练入口（v1 纯狼人杀 + verl backend）")
+    parser.add_argument("--dry", action="store_true",
+                        help="dry-run：只跑 collect→parquet 链路，不真调 verl/vLLM")
     parser.add_argument("--cycles", type=int, default=30)
     parser.add_argument("--group-size", type=int, default=8)
     parser.add_argument("--groups-per-role", type=int, default=20)
@@ -44,13 +51,22 @@ def main():
     parser.add_argument("--wandb-project", type=str, default="")
     parser.add_argument(
         "--roles", type=str, default="werewolf,seer,witch,hunter,guard,villager",
-        help="逗号分隔；每个 role 都会被 groups_per_role 次采集",
+        help="逗号分隔",
+    )
+    parser.add_argument(
+        "--verl-config", type=str, default="configs/verl_grpo.yaml",
+        help="verl 训练配置模板",
+    )
+    parser.add_argument(
+        "--skip-hot-swap", action="store_true",
+        help="不要在训练完后推 LoRA 到 vLLM（用于离线 batch 训练）",
     )
     args = parser.parse_args()
 
     from modules.rl.config import RLConfig
     from modules.rl.collector import RLCollector
-    from modules.rl.trainer import GRPOTrainer
+    from modules.rl.verl_dataset import buffer_to_parquet, verify_parquet
+    from modules.rl.verl_trainer import VerlGRPOAdapter, hot_swap_lora_to_vllm
 
     cfg = RLConfig(
         group_size=args.group_size,
@@ -68,17 +84,21 @@ def main():
         seed_base=args.seed,
         wandb_project=args.wandb_project,
         scene_mode="game",       # v1 强制 game 模式
-        use_llm=not args.dry,    # dry 模式所有 agent 走 fallback，不调任何 LLM
+        use_llm=not args.dry,    # dry 走 fallback 不调 LLM
     )
 
-    print(f"[rl_train] mode={'dry' if args.dry else 'real'} | "
-          f"cycles={cfg.num_cycles} | group={cfg.group_size} × {cfg.groups_per_role}/role × {len(cfg.roles)} roles")
-    print(f"[rl_train] 每 cycle 约采集 {cfg.group_size * cfg.groups_per_role * len(cfg.roles)} 局")
+    print(f"[rl_train] mode={'dry' if args.dry else 'real(verl)'} | "
+          f"cycles={cfg.num_cycles} | group={cfg.group_size} × {cfg.groups_per_role}/role × {len(cfg.roles)} roles",
+          flush=True)
+    print(f"[rl_train] 每 cycle 约采集 {cfg.group_size * cfg.groups_per_role * len(cfg.roles)} 局", flush=True)
+    if not args.dry:
+        print(f"[rl_train] verl 配置：{args.verl_config}", flush=True)
+        print(f"[rl_train] vLLM endpoint：{args.vllm_endpoint}", flush=True)
 
     collector = RLCollector(cfg)
-    trainer = GRPOTrainer(cfg, mode="dry" if args.dry else "real")
+    adapter = VerlGRPOAdapter(cfg, base_config_path=args.verl_config) if not args.dry else None
 
-    # wandb 可选
+    # wandb
     wandb = None
     if cfg.wandb_project and not args.dry:
         try:
@@ -89,34 +109,75 @@ def main():
                 config=cfg.__dict__,
             )
         except ImportError:
-            print("[rl_train] 未装 wandb，跳过 wandb 日志")
+            print("[rl_train] 未装 wandb，跳过", flush=True)
+
+    parquet_dir = os.path.join(cfg.output_dir, "parquets")
+    buffer_dir = os.path.join(cfg.output_dir, "buffers")
+    os.makedirs(parquet_dir, exist_ok=True)
+    os.makedirs(buffer_dir, exist_ok=True)
 
     for cycle in range(cfg.num_cycles):
-        print(f"\n========== Cycle {cycle} / {cfg.num_cycles - 1} ==========")
-        # Phase A: collect
-        print(f"[cycle {cycle}] Phase A 采集中…")
+        print(f"\n========== Cycle {cycle} / {cfg.num_cycles - 1} ==========", flush=True)
+
+        # ─── Phase A：采集 ──────────────────────────────
+        print(f"[cycle {cycle}] Phase A：采集 {cfg.group_size * cfg.groups_per_role * len(cfg.roles)} 局…", flush=True)
         buf = collector.collect_cycle(cycle)
-        trainer.save_buffer(buf, cycle)
+        buf.save(os.path.join(buffer_dir, f"cycle_{cycle:03d}.json"))
         stats = buf.stats()
-        print(f"[cycle {cycle}] 采集完毕：{stats['groups']} groups, "
+        print(f"[cycle {cycle}]   采集完毕：{stats['groups']} groups, "
               f"reward_mean={stats.get('reward_mean', 0):.3f}, "
-              f"zero_var={stats.get('zero_variance_groups', 0)}")
+              f"zero_var_groups={stats.get('zero_variance_groups', 0)}", flush=True)
 
-        # Phase B: train
-        print(f"[cycle {cycle}] Phase B {'dry-run' if args.dry else '训练中'}…")
-        metrics = trainer.train_on_buffer(buf, cycle)
-        trainer.save_metrics(metrics, cycle)
-        print(f"[cycle {cycle}] 完毕：samples={metrics['samples']}, "
-              f"with_logprobs={metrics.get('samples_with_logprobs', 0)}")
+        # ─── Phase B：转 parquet ──────────────────────
+        parquet_path = os.path.join(parquet_dir, f"cycle_{cycle:03d}.parquet")
+        try:
+            _, n_rows, conv_stats = buffer_to_parquet(buf, parquet_path)
+            print(f"[cycle {cycle}] Phase B：写 parquet {n_rows} 行 → {parquet_path}", flush=True)
+            print(f"[cycle {cycle}]   过滤统计：{conv_stats}", flush=True)
+        except Exception as exc:
+            print(f"[cycle {cycle}] ❌ parquet 转换失败：{exc}", flush=True)
+            continue
 
-        if wandb is not None:
-            wandb.log({**{f"cycle/{k}": v for k, v in stats.items() if isinstance(v, (int, float))},
-                       "cycle": cycle})
+        if n_rows == 0:
+            print(f"[cycle {cycle}] ⚠ parquet 0 行（可能 dry 或 Qwen 全部用 fallback），跳过训练", flush=True)
+            if wandb:
+                wandb.log({"cycle": cycle, **{f"buffer/{k}": v for k, v in stats.items() if isinstance(v, (int, float))}})
+            continue
 
-    print("\n[rl_train] 全部 cycle 完成。")
+        verify_stats = verify_parquet(parquet_path)
+        print(f"[cycle {cycle}]   parquet 校验：{verify_stats}", flush=True)
+
+        # ─── Phase C：verl 训练 ──────────────────────
+        if args.dry:
+            print(f"[cycle {cycle}] Phase C：dry-run（跳过 verl）", flush=True)
+            lora_path = None
+        else:
+            print(f"[cycle {cycle}] Phase C：调 verl 训练（{cfg.epochs_per_buffer} epochs）…", flush=True)
+            result = adapter.train_one_cycle(parquet_path, cycle, dry=False)
+            lora_path = result["lora_path"]
+            print(f"[cycle {cycle}]   verl 训练完毕，LoRA → {lora_path}", flush=True)
+
+        # ─── Phase D：vLLM hot-swap ──────────────────
+        if lora_path and not args.skip_hot_swap:
+            try:
+                hot_swap_lora_to_vllm(lora_path, cfg.vllm_endpoint, adapter_name="current")
+                print(f"[cycle {cycle}] Phase D：LoRA 已推到 vLLM（next cycle 用新权重 rollout）", flush=True)
+            except Exception as exc:
+                print(f"[cycle {cycle}] ⚠ vLLM hot-swap 失败：{exc}。下一 cycle 仍用旧权重", flush=True)
+
+        # ─── wandb 日志 ──────────────────────────────
+        if wandb:
+            wandb.log({
+                "cycle": cycle,
+                **{f"buffer/{k}": v for k, v in stats.items() if isinstance(v, (int, float))},
+                **{f"parquet/{k}": v for k, v in verify_stats.items() if isinstance(v, (int, float))},
+            })
+
+    print("\n[rl_train] 全部 cycle 完成。", flush=True)
+    print(f"  Buffers:  {buffer_dir}", flush=True)
+    print(f"  Parquets: {parquet_dir}", flush=True)
     if not args.dry:
-        print(f"LoRA 权重在：{os.path.join(cfg.output_dir, 'cycle_*/')}")
-    print(f"Buffer + metrics 在：{cfg.output_dir}")
+        print(f"  LoRA 权重: {os.path.join(cfg.output_dir, 'verl_ckpt')}", flush=True)
     return 0
 
 

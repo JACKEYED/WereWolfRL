@@ -1,6 +1,12 @@
-# 文件作用：GRPO trainer 包装。
-# 真训练用 trl.GRPOTrainer（依赖 torch / transformers / peft / trl）；
-# 这里同时提供 dry-run 模式，在无 ML 依赖时也能跑通整条 collect→train pipeline 走查数据流。
+# 文件作用：⚠ DEPRECATED ——遗留的 trl-based GRPO trainer，**真训练已切到 verl**。
+# 保留本文件只为以下场景：
+#   1. CI / pytest 跑 dry-run（buffer→loss 数学验证），不引入 verl 依赖
+#   2. 没有 verl 的环境下手动 debug 单条样本的 loss 数值
+# 真实训练入口请用：modules.rl.verl_trainer.VerlGRPOAdapter
+# 主流程 rl_train.py 默认走 verl，不再 import 本文件。
+#
+# ───────────────────────────────────────────────────────────
+# 以下为原 trl-based 实现（保留用于参考 + dry-run）。
 
 import json
 import os

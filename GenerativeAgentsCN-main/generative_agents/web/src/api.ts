@@ -54,6 +54,11 @@ export async function step(
   });
 }
 
+/** 后端在线程池里自动跑完整局。一直 await 到分出胜负或达到安全上限。 */
+export async function runGame(gameId: string): Promise<GameSummary> {
+  return jsonRequest(`/api/games/${gameId}/run`, { method: "POST" });
+}
+
 export async function fetchState(gameId: string): Promise<GameState> {
   return jsonRequest(`/api/games/${gameId}/state`);
 }

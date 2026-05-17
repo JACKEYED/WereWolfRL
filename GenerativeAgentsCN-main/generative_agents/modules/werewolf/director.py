@@ -153,8 +153,14 @@ class WerewolfDirector:
             conversation = {}
 
         # 按 name 创建并注册到 GameRegistry；返回的 game 直接绑定到本 director，不再依赖全局 singleton。
+        import time as _time
+        _t0 = _time.perf_counter()
         self.game = create_game(name, static_root, config, conversation, logger=self.logger)
+        _t1 = _time.perf_counter()
+        print(f"[director.__init__] {name}: create_game (maze + 12 agents) {(_t1 - _t0)*1000:.0f}ms", flush=True)
         self.game.reset_game()
+        _t2 = _time.perf_counter()
+        print(f"[director.__init__] {name}: reset_game (12 × create_llm_model) {(_t2 - _t1)*1000:.0f}ms", flush=True)
 
         self.players_order: List[str] = list(config["agents"].keys())
         self.players: Dict[str, WerewolfPlayer] = {}
@@ -271,7 +277,13 @@ class WerewolfDirector:
             self.logger.warning(f"trajectories.json 写盘失败：{exc}")
 
     def setup(self) -> None:
+        import time as _time
+        _t0 = _time.perf_counter()
+
         self.assign_roles()
+        _t1 = _time.perf_counter()
+        print(f"[director.setup] {self.name}: assign_roles {(_t1 - _t0)*1000:.0f}ms", flush=True)
+
         for name in self.players_order:
             brief = self.role_brief(name)
             self.private_log[name].append(brief)
@@ -284,6 +296,8 @@ class WerewolfDirector:
                 duration=10,
                 emoji="身份",
             )
+        _t2 = _time.perf_counter()
+        print(f"[director.setup] {self.name}: move 12 agents + briefs {(_t2 - _t1)*1000:.0f}ms", flush=True)
 
         # 路 3：每个 Agent 形成初始 belief（按身份不同有不同先验）
         self.belief_states = {
@@ -299,6 +313,8 @@ class WerewolfDirector:
             for name in self.players_order
         }
         self._phase_record_cursor_per_agent = {name: 0 for name in self.players_order}
+        _t3 = _time.perf_counter()
+        print(f"[director.setup] {self.name}: init 12 belief_states {(_t3 - _t2)*1000:.0f}ms", flush=True)
 
         opening_record = (
             "12 名玩家已收到身份牌。4 狼人 + 预言家 + 女巫 + 猎人 + 守卫 + 4 村民，"
@@ -308,6 +324,8 @@ class WerewolfDirector:
         )
         self.add_record("public", "开局", opening_record)
         self.save_checkpoint("开局")
+        _t4 = _time.perf_counter()
+        print(f"[director.setup] {self.name}: save_checkpoint {(_t4 - _t3)*1000:.0f}ms", flush=True)
 
     def assign_roles(self) -> None:
         if len(self.players_order) != len(ROLE_DECK):

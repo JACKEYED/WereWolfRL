@@ -62,15 +62,15 @@ ensure_node() {
   fi
 }
 
-# 给一条日志行加前缀色块
+# 给一条日志行加前缀色块。
+# 用 awk + fflush() 而非 sed —— sed 在 Git Bash for Windows 的管道里会块缓冲，
+# 导致 backend print 看不到。awk 每行强制 fflush，跨平台 line-buffered 稳定。
 prefix_pipe() {
   local color="$1"; local label="$2"
-  if command -v stdbuf >/dev/null 2>&1; then
-    stdbuf -oL -eL sed -e "s/^/$(printf "%b" "${color}")[${label}]$(printf "%b" "$C_RESET") /"
-  else
-    sed -u -e "s/^/$(printf "%b" "${color}")[${label}]$(printf "%b" "$C_RESET") /" 2>/dev/null \
-      || sed -e "s/^/[${label}] /"
-  fi
+  local prefix
+  prefix="$(printf "%b" "${color}")[${label}]$(printf "%b" "$C_RESET") "
+  awk -v p="$prefix" '{ print p $0; fflush() }' 2>/dev/null \
+    || sed -e "s/^/[${label}] /"
 }
 
 # ──────────────── 子命令 ────────────────
@@ -91,7 +91,8 @@ run_smoke() {
 run_backend() {
   ensure_python
   cd "$WORK"
-  exec python -m uvicorn api.server:app --reload --port 8000
+  # -u 关闭 stdout 缓冲，让 print() 立即可见（否则被管道吞住 4KB 才 flush）
+  exec python -u -m uvicorn api.server:app --reload --port 8000
 }
 
 run_frontend() {
@@ -107,7 +108,7 @@ run_up() {
   log_info "启动后端 :8000 + 前端 :5173；Ctrl+C 一并停止"
 
   # 后端
-  ( cd "$WORK" && python -m uvicorn api.server:app --reload --port 8000 2>&1 \
+  ( cd "$WORK" && python -u -m uvicorn api.server:app --reload --port 8000 2>&1 \
       | prefix_pipe "$C_BACKEND" "backend" ) &
   BACKEND_PID=$!
 
