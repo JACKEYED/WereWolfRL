@@ -175,6 +175,7 @@ class WerewolfDirector:
         self.day = 0
         self.step = int(config.get("step", 0))
         self.winner: Optional[str] = None
+        self.death_records: List[Dict] = []  # 死亡记录列表
         # NPC 流言：game 模式禁用（RL 训练不需要叙事噪声）
         self.gossip_mill = None
         if scene_mode == "social":
@@ -377,6 +378,17 @@ class WerewolfDirector:
         player.alive = False
         player.death_reason = reason
         player.death_day = self.day
+
+        # 简化为两分类：放逐 → 投票出局，其余 → 夜间死亡
+        simple_cause = "投票出局" if "放逐" in reason else "夜间死亡"
+        self.death_records.append({
+            "name": name,
+            "day": self.day,
+            "role": player.role,
+            "cause": simple_cause,
+            "detail": reason,
+        })
+
         if self.scene_mode == "game":
             move_desc = "被移出场，进入旁观区"
             death_announce = f"{name} 出局，原因：{reason}。身份暂不公开。"
@@ -434,6 +446,10 @@ class WerewolfDirector:
     # =========================================================================
     # 状态查询
     # =========================================================================
+    @property
+    def dead_players(self) -> List[WerewolfPlayer]:
+        return [p for p in self.players.values() if not p.alive]
+
     def alive_names(self, role: Optional[str] = None) -> List[str]:
         names = [n for n in self.players_order if self.players[n].alive]
         if role:

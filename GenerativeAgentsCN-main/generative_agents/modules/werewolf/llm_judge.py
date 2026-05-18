@@ -106,7 +106,7 @@ def _build_judge_prompt(
     for dead_player in director.dead_players:
         if dead_player.name in alive:
             continue
-        dead_block += f"{dead_player.name}({_role_zh(dead_player.role_name)})已死；"
+        dead_block += f"{dead_player.name}在{dead_player.death_day}天已死, 死因：{dead_player.death_cause}\n"
     
 
     # 投票纪录
@@ -129,7 +129,7 @@ def _build_judge_prompt(
 [你当前的心理判断](每条是你对一个人的身份概率分布):
 {prior_text}
 
-[当前阶段已经死去的玩家]
+[当前阶段已经死去的玩家以及死因]
 {dead_block}
 
 [刚刚发生的事件]({phase_label} 阶段，按时间顺序):
