@@ -3,6 +3,7 @@
 
 from typing import List, Tuple
 
+# TODO 流言是否可以交由模型生成
 
 class GossipMill:
     NPCS = {

@@ -101,6 +101,21 @@ def _build_judge_prompt(
             items.append(f"{t}=100% {_role_zh(r)}")
         locked_block = "你已经 100% 确认的玩家身份：" + "；".join(items) + "。\n"
 
+    # 死亡玩家信息
+    dead_block = ""
+    for dead_player in director.dead_players:
+        if dead_player.name in alive:
+            continue
+        dead_block += f"{dead_player.name}({_role_zh(dead_player.role_name)})已死；"
+    
+
+    # 投票纪录
+    # vote_block = ""
+    # if director.vote_history:
+    #     rows = [f"第{r}轮：" + "、".join(f"{v}→{t}" for v, t in votes.items())
+    #         for r, votes in director.vote_history.items()]
+    #     vote_block = "[历史投票记录]\n" + "\n".join(rows) + "\n"
+
     # 把当前 belief 渲染成可读文本
     prior_text = prior.render_text(top_k=6)
 
@@ -111,30 +126,36 @@ def _build_judge_prompt(
 {own_block}
 {locked_block}存活玩家：{alive_text}
 
-【你当前的心理判断】（每条是你对一个人的身份概率分布）：
+[你当前的心理判断](每条是你对一个人的身份概率分布):
 {prior_text}
 
-【刚刚发生的事件】（{phase_label} 阶段，按时间顺序）：
+[当前阶段已经死去的玩家]
+{dead_block}
+
+[刚刚发生的事件]({phase_label} 阶段，按时间顺序):
 {events_block}
 
-任务：基于以上事件，**重新估计**你对以下玩家身份的概率分布：
+任务：基于以上事件，**重新估计**你对以下玩家身份的概率分布:
 {targets_text}
 
 判断要点：
 1. 跳神 / 发对刀 / 站边 / 投票 是强信号
 2. 言行矛盾、回避问题、抢话头是弱嫌疑信号
 3. 不要完全无视先验，但允许较大幅度调整
-4. 概率分布要反映"几个候选都有可能"的不确定性，不要轻易给 0% 或 100%
-5. 必须只考虑你听到/亲历的事件，不能编造未发生的事
+4. 必须只考虑你听到/亲历的事件，不能编造未发生的事
 
-只输出 JSON：
+注意:
+1. 只输出 JSON:
 {{
   "beliefs": {{
     "{targets[0]}": {{"werewolf": 0.x, "seer": 0.x, "witch": 0.x, "hunter": 0.x, "guard": 0.x, "villager": 0.x}}
     {('...' if len(targets) > 1 else '')}
   }}
 }}
-每个目标的 6 个概率必须加起来约等于 1（系统会再做归一）。
+2. 你输出的beliefs尽可能的避免出现极端的概率(0%或100%),除非你非常确定。每个目标的6个角色概率加起来应该约等于1, 避免出现遗漏角色。
+3. 如果无法判断某个玩家的身份，保持与 prior 中相似的分布，不要随意调整。
+4. 避免输出的概率分布出现平均分布(每个角色约16.7%)，除非你完全没有任何线索。
+4. 不要在输出中包含任何解释、评论或除 JSON 以外的文本。如果无法给出合理的判断，可以输出 prior 中相似的分布，但仍需遵守上述格式要求。
 """
 
 
