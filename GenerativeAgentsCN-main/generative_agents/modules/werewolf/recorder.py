@@ -3,6 +3,7 @@
 
 import json
 import os
+import threading
 from dataclasses import asdict
 from typing import List, Optional, Sequence, Tuple
 
@@ -32,7 +33,7 @@ def add_record(
     director.phase_records.append(entry)
     if scope == "public":
         director.public_log.append(f"{stamp} {text}")
-    director.logger.info(f"[{scope}] {phase}: {text}")
+    director.logger.info(f"[T-{threading.current_thread().name}][{scope}] {phase}: {text}")
 
 
 def record_dialogue(

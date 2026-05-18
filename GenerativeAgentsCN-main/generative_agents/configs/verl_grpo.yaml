@@ -6,7 +6,7 @@
 #   - 1 张 A100 80G
 #   - Qwen2.5-7B-Instruct + LoRA rank=64
 #   - 不走 verl 自带的 rollout（我们已经 offline 采集好了），advantage 直接从 parquet 读
-#   - vLLM 在 :8001 serve 着，--enable-lora --enable-lora-hot-swap
+#   - vLLM 在 :8001 serve 着，--enable-lora；需设环境变量 VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 启用热切换
 #
 # 字段命名按 verl v0.3.x 约定；不同版本可能要微调。
 

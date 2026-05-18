@@ -6,9 +6,9 @@
 #   5. 进入下一 cycle，新一轮 rollout 用更新后的 Qwen
 #
 # 用法：
-#   # 1. 启 vLLM（带 LoRA hot-swap）：
-#   vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 \
-#       --enable-lora --enable-lora-hot-swap --max-lora-rank 64
+#   # 1. 启 vLLM（带 LoRA 热切换）：
+#   VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 vllm serve Qwen/Qwen2.5-7B-Instruct \
+#       --port 8001 --enable-lora --max-lora-rank 64
 #
 #   # 2. dry-run（无 GPU、不真训，只走 collect → parquet → verl_dry）
 #   python rl_train.py --dry --cycles 1 --groups-per-role 1 --group-size 2

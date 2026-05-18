@@ -6,3 +6,36 @@ llama-index-embeddings-huggingface==0.6.1
 llama-index-embeddings-ollama==0.8.6
 llama-index-embeddings-openai==0.5.1
 Flask==3.1.2
+
+
+# RL 训练专用依赖（v1 GRPO 训练管线，verl backend）。
+# 主项目依赖在 requirements.txt；这里只列 RL 训练 + vLLM serving 用的额外包。
+#
+# 安装：pip install -r requirements-rl.txt
+# 至少需要 1 张 A100/H100 80G 才能跑 Qwen-7B + LoRA + ref 模型 + GRPO 训练。
+
+# ─── 训练框架（核心切换：trl → verl） ─────────────────────────
+verl>=0.3.0
+ray[default]>=2.36.0
+hydra-core>=1.3.2
+
+# ─── 底层 ML 栈 ───────────────────────────────────────────
+torch==2.10.0
+transformers>=4.45.0
+peft>=0.13.0
+accelerate>=1.0.0
+bitsandbytes>=0.43.0      # 可选：8-bit / 4-bit 量化节省显存
+datasets>=2.20.0
+
+# ─── 数据格式（verl parquet IO） ───────────────────────────
+pandas>=2.2.0
+pyarrow>=17.0.0
+
+# ─── vLLM serving（actor model） ──────────────────────────
+vllm>=0.6.0               # 需启动时带 --enable-lora --enable-lora-hot-swap
+
+# ─── 训练监控 ────────────────────────────────────────────
+wandb>=0.18.0
+# 推荐下载对应的预编译whl https://github.com/Dao-AILab/flash-attention/releases 自行选择版本(cuda/torch/cp版本需要一致)
+# 下载后pip install xxx.whl（文件名）
+flash-attn>=2.6.0; sys_platform != "win32"   # Linux 装；Windows 跳

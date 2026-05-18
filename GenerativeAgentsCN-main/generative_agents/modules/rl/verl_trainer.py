@@ -154,7 +154,7 @@ def hot_swap_lora_to_vllm(
 ) -> bool:
     """通过 vLLM 的 /v1/load_lora_adapter 接口热加载新 LoRA。
 
-    要求 vLLM 启动时带 `--enable-lora --enable-lora-hot-swap`。
+    要求 vLLM 启动时带 `--enable-lora` 并设置环境变量 `VLLM_ALLOW_RUNTIME_LORA_UPDATING=1`。
 
     Returns: True 表示加载成功。
     """

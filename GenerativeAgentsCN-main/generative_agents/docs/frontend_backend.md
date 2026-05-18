@@ -165,9 +165,9 @@ Phase D：vLLM hot-swap
 python rl_train.py --dry --cycles 1 --groups-per-role 1 --group-size 2
 
 # 真训：
-# 1) 起 vLLM（必须带 LoRA hot-swap）
-vllm serve Qwen/Qwen2.5-7B-Instruct \
-    --port 8001 --enable-lora --enable-lora-hot-swap --max-lora-rank 64 &
+# 1) 起 vLLM（必须设环境变量以启用 LoRA 热切换）
+VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 vllm serve Qwen/Qwen2.5-7B-Instruct \
+    --port 8001 --enable-lora --max-lora-rank 64 &
 
 # 2) 装 verl 等
 pip install -r requirements-rl.txt

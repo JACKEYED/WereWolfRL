@@ -12,6 +12,7 @@
 import json
 import os
 import random
+import threading
 from typing import Dict, Iterable, List, Optional, Sequence
 
 from modules import memory, utils
@@ -564,6 +565,10 @@ class WerewolfDirector:
         if not self.belief_states:
             return
 
+        alive = self.alive_names()
+        print(f"[T-{threading.current_thread().name}] end_of_phase {phase_label}: {len(alive)} survivors, "
+              f"updating beliefs...", flush=True)
+
         # 1. 取本阶段新增的 public/secret/social 事件（按 holder 可见性筛选）
         records = self.phase_records
         cursor = self._phase_record_cursor_per_agent
@@ -574,10 +579,12 @@ class WerewolfDirector:
 
         # 3. 对每个存活 Agent 调一次 LLM 重估
         real_roles = {n: p.role for n, p in self.players.items()}
-        for name in self.alive_names():
+        for idx, name in enumerate(alive):
             visible = self._visible_events_for(name, records, cursor.get(name, 0))
             if not visible:
                 continue
+            print(f"[{self.name}]   belief {idx + 1}/{len(alive)}: {name} ({real_roles[name]})",
+                  flush=True)
             new_belief = update_belief_via_llm(
                 self,
                 witness_name=name,
@@ -586,6 +593,7 @@ class WerewolfDirector:
                 new_events=visible,
             )
             self.belief_states[name] = new_belief
+        print(f"[T-{threading.current_thread().name}] end_of_phase {phase_label}: done", flush=True)
         # 4. 全员（无论活死）游标推进
         for name in self.players_order:
             cursor[name] = len(records)

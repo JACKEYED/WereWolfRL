@@ -3,8 +3,8 @@
 
 用法:
     1. 启动 vLLM（Qwen 座位推理 + 获取 logprobs）:
-       vllm serve Qwen/Qwen2.5-7B-Instruct --port 8001 \
-           --enable-lora --enable-lora-hot-swap --max-lora-rank 64
+       VLLM_ALLOW_RUNTIME_LORA_UPDATING=1 vllm serve Qwen/Qwen2.5-7B-Instruct \
+           --port 8001 --enable-lora --max-lora-rank 64
 
     2. 确保 data/config.json 配置了 DeepSeek API（其他 11 个座位用）
 
