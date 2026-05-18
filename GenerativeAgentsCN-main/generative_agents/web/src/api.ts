@@ -4,7 +4,11 @@ import type {
   AgentPrivate,
   GameState,
   GameSummary,
+  JobFull,
+  JobSummary,
   LiveEvent,
+  NewJobRequest,
+  RLEvent,
   StepPhase,
 } from "./types";
 
@@ -89,6 +93,49 @@ export function subscribeLive(
       onEvent(JSON.parse(msg.data) as LiveEvent);
     } catch (e) {
       console.warn("ws message parse failed", e);
+    }
+  };
+  ws.onerror = (err) => onError?.(err);
+  return () => ws.close();
+}
+
+
+// ──────────── RL 训练接口 ────────────
+export async function createTrainingJob(req: NewJobRequest): Promise<JobSummary> {
+  return jsonRequest("/api/rl/jobs", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+export async function listTrainingJobs(): Promise<JobSummary[]> {
+  return jsonRequest("/api/rl/jobs");
+}
+
+export async function fetchTrainingStatus(jobId: string): Promise<JobFull> {
+  return jsonRequest(`/api/rl/jobs/${jobId}/status`);
+}
+
+export async function stopTrainingJob(jobId: string): Promise<JobSummary> {
+  return jsonRequest(`/api/rl/jobs/${jobId}/stop`, { method: "POST" });
+}
+
+export async function deleteTrainingJob(jobId: string): Promise<void> {
+  await jsonRequest(`/api/rl/jobs/${jobId}`, { method: "DELETE" });
+}
+
+export function subscribeTrainingJob(
+  jobId: string,
+  onEvent: (event: RLEvent) => void,
+  onError?: (err: Event) => void,
+): () => void {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws/rl/jobs/${jobId}`);
+  ws.onmessage = (msg) => {
+    try {
+      onEvent(JSON.parse(msg.data) as RLEvent);
+    } catch (e) {
+      console.warn("rl ws parse failed", e);
     }
   };
   ws.onerror = (err) => onError?.(err);

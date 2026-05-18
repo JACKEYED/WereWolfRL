@@ -99,3 +99,70 @@ export type LiveEvent =
     };
 
 export type StepPhase = "social-pre" | "night" | "day" | "social-post";
+
+
+// ──────────── RL 训练 ────────────
+export type JobState = "pending" | "running" | "completed" | "failed" | "stopped";
+export type CyclePhase = "idle" | "collecting" | "packaging" | "training" | "hotswapping";
+
+export interface CycleMetric {
+  cycle: number;
+  reward_mean: number;
+  reward_min: number;
+  reward_max: number;
+  zero_variance_groups: number;
+  total_steps: number;
+  parquet_rows: number;
+  elapsed_sec: number;
+  loss: number | null;
+  kl: number | null;
+  lora_path: string | null;
+}
+
+export interface JobSummary {
+  id: string;
+  state: JobState;
+  current_phase: CyclePhase;
+  current_cycle: number;
+  total_cycles: number;
+  dry: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  last_reward_mean: number | null;
+}
+
+export interface JobFull extends JobSummary {
+  cfg: Record<string, unknown>;
+  cycle_metrics: CycleMetric[];
+  log: string[];
+  error: string | null;
+}
+
+export interface NewJobRequest {
+  cycles?: number;
+  group_size?: number;
+  groups_per_role?: number;
+  collection_workers?: number;
+  epochs_per_buffer?: number;
+  lr?: number;
+  beta_kl?: number;
+  clip_eps?: number;
+  base_model?: string;
+  vllm_endpoint?: string;
+  output_dir?: string;
+  seed?: number;
+  wandb_project?: string;
+  roles?: string[];
+  dry?: boolean;
+}
+
+export type RLEvent =
+  | { type: "snapshot"; job: JobFull }
+  | { type: "job_start"; ts: string; msg: string; total_cycles: number; dry: boolean }
+  | { type: "job_done"; ts: string; msg: string }
+  | { type: "job_stop"; ts: string; msg: string }
+  | { type: "phase"; ts: string; phase: CyclePhase; cycle: number; msg: string }
+  | { type: "cycle_done"; ts: string; cycle: number; metric: CycleMetric; msg: string }
+  | { type: "log"; ts: string; msg: string }
+  | { type: "error"; ts: string; msg: string };

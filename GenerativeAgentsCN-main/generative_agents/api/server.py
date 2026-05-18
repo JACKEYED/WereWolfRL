@@ -23,6 +23,8 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.sessions import registry
+from api.rl_routes import router as rl_router, ws_router as rl_ws_router
+from api.rl_sessions import registry as rl_registry
 from modules import utils
 from modules.werewolf.director import (
     DEFAULT_WEREWOLF_PLAYERS,
@@ -49,7 +51,14 @@ app.add_middleware(
 # 把当前 asyncio loop 注入 registry，跨线程事件转发用得到
 @app.on_event("startup")
 async def _on_startup():
-    registry.set_event_loop(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
+    registry.set_event_loop(loop)
+    rl_registry.set_event_loop(loop)
+
+
+# 挂载 RL 训练子路由
+app.include_router(rl_router)
+app.include_router(rl_ws_router)
 
 
 # 阻塞型 director.run() 用线程池跑，免得拽住 asyncio loop。
