@@ -1,14 +1,23 @@
 # 文件作用：封装 OpenAI 兼容接口和 Ollama 接口，提供统一的大模型 completion 调用。
 
+import os
 import time
 import re
 import requests
 import json
 
 
+def resolve_api_key(config):
+    """Resolve a credential without requiring it to be stored in config.json."""
+    env_name = config.get("api_key_env")
+    if env_name:
+        return os.getenv(env_name, "")
+    return config.get("api_key", "")
+
+
 class LLMModel:
     def __init__(self, config):
-        self._api_key = config["api_key"]
+        self._api_key = resolve_api_key(config)
         self._base_url = config["base_url"]
         self._model = config["model"]
         self._summary = {"total": [0, 0, 0]}
@@ -79,6 +88,9 @@ class OpenAILLMModel(LLMModel):
     def setup(self, config):
         from openai import OpenAI
 
+        if not self._api_key:
+            env_name = config.get("api_key_env", "the configured environment variable")
+            raise ValueError(f"Missing API key. Set {env_name} before starting the application.")
         return OpenAI(api_key=self._api_key, base_url=self._base_url)
 
     def _completion(self, _prompt, return_type, temperature=0.5):

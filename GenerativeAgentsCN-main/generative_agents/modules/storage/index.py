@@ -12,6 +12,7 @@ from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core import Settings
 
 from modules import utils
+from modules.model.llm_model import resolve_api_key
 
 
 class LlamaIndex:
@@ -29,7 +30,7 @@ class LlamaIndex:
             embed_model = OpenAIEmbedding(
                 model_name=embedding_config["model"],
                 api_base=embedding_config["base_url"],
-                api_key=embedding_config["api_key"],
+                api_key=resolve_api_key(embedding_config),
             )
         else:
             raise NotImplementedError(

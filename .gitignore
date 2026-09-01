@@ -1,3 +1,11 @@
 *.claude
 *.gemini
 *.venv
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.local
+config.local.json
+secrets*.json

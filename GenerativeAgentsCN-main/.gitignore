@@ -127,6 +127,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -167,3 +169,8 @@ cython_debug/
 
 .claude/
 checkpoints/
+
+# Local secrets and machine-specific configuration
+*.local
+config.local.json
+secrets*.json

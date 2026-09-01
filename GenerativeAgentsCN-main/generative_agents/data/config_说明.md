@@ -26,7 +26,8 @@ diversity: 日程多样性要求。
     "provider": "openai",
     "model": "deepseek-v4-flash",
     "base_url": "https://api.deepseek.com",
-    "api_key": "sk-xxx"
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "api_key": ""
   },
   "interval": 1000,
   "poignancy_max": 150
@@ -38,7 +39,8 @@ ollama：本地 Ollama。
 openai：OpenAI 兼容 API，比如 DeepSeek、OpenAI、硅基流动、OpenRouter。
 model: 模型名称。DeepSeek 可填类似 deepseek-v4-flash。
 base_url: API 地址。DeepSeek 是 https://api.deepseek.com。
-api_key: 你的 API Key。
+api_key_env: 保存 API Key 的环境变量名。真实 Key 不应写入此文件。
+api_key: 仅为兼容本地服务保留；远程 API 应保持为空。
 其他两个：
 
 interval: 旧小镇思考间隔，狼人杀里基本不重要。

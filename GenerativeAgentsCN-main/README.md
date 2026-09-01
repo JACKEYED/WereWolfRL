@@ -168,7 +168,8 @@ generative_agents/data/config.json
         "provider": "openai",
         "model": "deepseek-v4-flash",
         "base_url": "https://api.deepseek.com",
-        "api_key": "你的 DeepSeek API Key"
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "api_key": ""
       },
       "interval": 1000,
       "poignancy_max": 150
@@ -186,6 +187,20 @@ generative_agents/data/config.json
   }
 }
 ```
+
+真实 Key 不要写入 `config.json`。启动前通过环境变量注入新 Key：
+
+```powershell
+# Windows PowerShell（仅当前终端会话）
+$env:DEEPSEEK_API_KEY = "your-new-key"
+```
+
+```bash
+# macOS / Linux（仅当前终端会话）
+export DEEPSEEK_API_KEY="your-new-key"
+```
+
+如果旧 Key 曾经提交到 Git，请先在 DeepSeek 控制台将其吊销；删除文件或重写 Git 历史不能让旧 Key 失效。
 
 推荐先用 `--no-memory` 跑通主流程（只需配置 LLM，不需配置 embedding）：
 
@@ -540,11 +555,7 @@ git push origin feature/你的功能名
 
 ## 安全注意
 
-不要把真实 API Key 提交到 GitHub，尤其不要提交：
-
-```text
-sk-xxxxxxxx
-```
+不要把真实 API Key 写进源码、JSON 配置或提交到 GitHub。使用 `api_key_env` 指定环境变量名，在运行时注入凭据。
 
 如果 Key 已经暴露，立刻去服务商控制台删除或重置。
 
